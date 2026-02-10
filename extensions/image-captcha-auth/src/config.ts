@@ -1,0 +1,32 @@
+import type { CaptchaConfig } from "./types.js";
+
+export const config: CaptchaConfig = {
+  timeout: 5 * 60 * 1000,
+  verificationDuration: 5 * 60 * 1000,
+  port: 18800,
+  debug: false,
+  sensitiveKeywords: [
+    "delete",
+    "remove",
+    "rm",
+    "unlink",
+    "rmdir",
+    "format",
+    "wipe",
+    "erase",
+    "exec",
+    "eval",
+    "system",
+    "shell",
+    "bash",
+    "sudo",
+    "su",
+    "chmod",
+    "chown",
+    "restart",
+    "shutdown",
+    "reboot",
+    "gateway",
+  ],
+  allowlistUsers: [],
+};

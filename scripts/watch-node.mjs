@@ -23,7 +23,8 @@ const compilerProcess = spawn("pnpm", ["exec", compiler, "--watch"], {
   stdio: "inherit",
 });
 
-const nodeProcess = spawn(process.execPath, ["--watch", "openclaw.mjs", ...args], {
+const filteredArgs = process.platform === "win32" ? args.filter((a) => a !== "--force") : args;
+const nodeProcess = spawn(process.execPath, ["--watch", "openclaw.mjs", ...filteredArgs], {
   cwd,
   env,
   stdio: "inherit",
