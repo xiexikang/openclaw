@@ -338,6 +338,9 @@ importers:
 
   extensions/image-captcha-auth:
     dependencies:
+      qrcode-terminal:
+        specifier: ^0.12.0
+        version: 0.12.0
       svg-captcha:
         specifier: ^1.4.0
         version: 1.4.0

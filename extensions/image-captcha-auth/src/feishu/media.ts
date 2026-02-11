@@ -461,8 +461,33 @@ function isLocalPath(urlOrPath: string): boolean {
   }
 }
 
+function parseDataUri(uri: string): { buffer: Buffer; mimeType: string } | null {
+  if (!uri.startsWith("data:")) {
+    return null;
+  }
+  const commaIndex = uri.indexOf(",");
+  if (commaIndex === -1) {
+    return null;
+  }
+
+  const meta = uri.substring(5, commaIndex);
+  const data = uri.substring(commaIndex + 1);
+
+  const parts = meta.split(";");
+  const mimeType = parts[0] || "application/octet-stream";
+  const isBase64 = parts.includes("base64");
+
+  let buffer: Buffer;
+  if (isBase64) {
+    buffer = Buffer.from(data, "base64");
+  } else {
+    buffer = Buffer.from(decodeURIComponent(data));
+  }
+  return { buffer, mimeType };
+}
+
 /**
- * Upload and send media (image or file) from URL, local path, or buffer
+ * Upload and send media (image or file) from URL, local path, buffer, or data URI
  */
 export async function sendMediaFeishu(params: {
   cfg: ClawdbotConfig;
@@ -482,7 +507,22 @@ export async function sendMediaFeishu(params: {
     buffer = mediaBuffer;
     name = fileName ?? "file";
   } else if (mediaUrl) {
-    if (isLocalPath(mediaUrl)) {
+    // Check for data URI first
+    const dataUri = parseDataUri(mediaUrl);
+    if (dataUri) {
+      buffer = dataUri.buffer;
+      // Try to infer extension from MIME type
+      const extMap: Record<string, string> = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/bmp": ".bmp",
+        "image/ico": ".ico",
+        "image/tiff": ".tiff",
+      };
+      name = fileName ?? (extMap[dataUri.mimeType] ? `file${extMap[dataUri.mimeType]}` : "file");
+    } else if (isLocalPath(mediaUrl)) {
       // Local file path - read directly
       const filePath = mediaUrl.startsWith("~")
         ? mediaUrl.replace("~", process.env.HOME ?? "")

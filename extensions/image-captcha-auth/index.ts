@@ -5,6 +5,7 @@ import { deliverOutboundPayloads } from "../../src/infra/outbound/deliver.js";
 import { resolveOutboundTarget } from "../../src/infra/outbound/targets.js";
 import { captchaManager } from "./src/captcha-manager.js";
 import { config } from "./src/config.js";
+import { renderQrPngBase64 } from "./src/qr.js";
 import { startHttpServer, setNotifyCallback } from "./src/server.js";
 
 let serverStarted = false;
@@ -76,6 +77,9 @@ export default function register(api: OpenClawPluginApi) {
         api.logger.warn(`[captcha] Error resolving target: ${e}. Proceeding with original 'to'.`);
       }
 
+      const authUrl = `http://localhost:${config.port}/captcha/${session.sessionId}`;
+      const qrPng = await renderQrPngBase64(authUrl);
+
       await deliverOutboundPayloads({
         cfg,
         channel,
@@ -84,6 +88,7 @@ export default function register(api: OpenClawPluginApi) {
         payloads: [
           {
             text: `✅ 二次认证成功！\n\n验证的有效期为 ${config.verificationDuration / 1000} 秒。\n\n请重新发送命令以执行操作。`,
+            mediaUrls: [`data:image/png;base64,${qrPng}`],
           },
         ],
       });
@@ -160,12 +165,52 @@ export default function register(api: OpenClawPluginApi) {
     });
 
     const authUrl = `http://localhost:${config.port}/captcha/${session.sessionId}`;
+    const qrPng = await renderQrPngBase64(authUrl);
 
     api.logger.info(`[captcha] Blocking sensitive tool call: ${toolName} from ${userId}`);
 
+    if (parsedChannel && parsedChannel !== "web") {
+      try {
+        const cfg = loadConfig();
+        const to = parsedTo || userId;
+
+        let resolvedTo = to;
+        try {
+          const resolved = resolveOutboundTarget({
+            channel: parsedChannel,
+            to,
+            cfg,
+            accountId: parsedAccountId,
+            mode: "explicit",
+          });
+
+          if (resolved.ok) {
+            resolvedTo = resolved.to;
+          }
+        } catch (e) {
+          api.logger.warn(`[captcha] Error resolving target: ${e}`);
+        }
+
+        await deliverOutboundPayloads({
+          cfg,
+          channel: parsedChannel,
+          to: resolvedTo,
+          accountId: parsedAccountId,
+          payloads: [
+            {
+              text: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请扫描以下二维码或点击链接完成验证:\n${authUrl}\n\n验证码有效期: ${config.timeout / 1000} 秒\n\n验证成功后，请重新发送命令。`,
+              mediaUrls: [`data:image/png;base64,${qrPng}`],
+            },
+          ],
+        });
+      } catch (error) {
+        api.logger.error(`[captcha] Failed to send QR notification: ${String(error)}`);
+      }
+    }
+
     return {
       block: true,
-      blockReason: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击以下链接完成验证:\n${authUrl}\n\n验证码有效期: ${config.timeout / 1000} 秒\n\n验证成功后，请重新发送命令。`,
+      blockReason: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请查看消息中的二维码或扫描验证\n\n验证码有效期: ${config.timeout / 1000} 秒`,
     };
   });
 
