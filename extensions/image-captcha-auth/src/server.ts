@@ -7,6 +7,7 @@ import { config } from "./config.js";
 let notifyCallback: ((session: CaptchaSession) => void | Promise<void>) | null = null;
 
 export function setNotifyCallback(callback: (session: CaptchaSession) => void | Promise<void>) {
+  console.log("[image-captcha-auth] setNotifyCallback called");
   notifyCallback = callback;
 }
 
@@ -282,10 +283,17 @@ export function startHttpServer() {
             }
 
             const verified = captchaManager.verify(sessionId, code, session.userId);
+            console.log(
+              `[image-captcha-auth] Verification result: ${verified}, notifyCallback exists: ${!!notifyCallback}`,
+            );
 
             if (verified && notifyCallback) {
               try {
+                console.log(`[image-captcha-auth] Calling notifyCallback for session ${sessionId}`);
                 await notifyCallback(session);
+                console.log(
+                  `[image-captcha-auth] Notify callback completed for session ${sessionId}`,
+                );
               } catch (error) {
                 console.error("[image-captcha-auth] Notify callback error:", error);
               }

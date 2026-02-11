@@ -19,19 +19,31 @@ export default function register(api: OpenClawPluginApi) {
       const userIdParts = session.userId.split(":");
       // 尝试动态解析渠道：
       // 1. 优先使用 session.originalContext 中记录的 channel (最准确)
-      // 2. 其次尝试从 session.userId (格式如 agent:main:channel:id) 解析
-      // 3. 如果都失败，回退到 "web" (Dashboard)
+      // 2. 其次尝试从 session.userId 解析
       let channel = session.originalContext.channel;
-      if (!channel && userIdParts.length >= 6) {
-        // 假设 ID 结构类似于 agent:main:main:user:telegram:12345
-        // userIdParts[5] 通常是 channel name
-        channel = userIdParts[5];
-      }
+
       if (!channel) {
+        // 增强的渠道检测逻辑：遍历 ID 部分查找已知渠道名
+        const knownChannels = ["discord", "telegram", "slack", "whatsapp", "signal", "feishu"];
+
+        for (const part of userIdParts) {
+          if (knownChannels.includes(part)) {
+            channel = part;
+            break;
+          }
+        }
+      }
+
+      if (!channel || channel === "main") {
         channel = "web";
       }
 
-      const to = session.originalContext.to || userIdParts[7] || session.userId;
+      const to =
+        session.originalContext.to || userIdParts[userIdParts.length - 1] || session.userId;
+
+      api.logger.info(
+        `[captcha] Resolved channel: ${channel}, to: ${to} for user: ${session.userId}`,
+      );
 
       // 如果是 web 渠道，直接跳过发送通知，因为目前不支持 WebChat 主动推送
       if (channel === "web") {
@@ -124,13 +136,24 @@ export default function register(api: OpenClawPluginApi) {
       return undefined;
     }
 
+    const sessionKey = ctx.sessionKey || "";
+    const sessionKeyParts = sessionKey.split(":").filter(Boolean);
+
+    const parsedChannel = sessionKeyParts[2] || undefined;
+    const parsedAccountId = sessionKeyParts[3] || undefined;
+    const parsedTo = sessionKeyParts[sessionKeyParts.length - 1] || undefined;
+
+    api.logger.info(
+      `[captcha] Parsed from sessionKey: channel=${parsedChannel}, accountId=${parsedAccountId}, to=${parsedTo}`,
+    );
+
     const session = captchaManager.generate(userId, {
-      sessionKey: ctx.sessionKey || "",
+      sessionKey,
       senderId: userId,
       commandBody: command,
-      channel: (ctx as any).messageChannel,
-      to: (ctx as any).agentAccountId,
-      accountId: (ctx as any).agentAccountId,
+      channel: parsedChannel,
+      to: parsedTo,
+      accountId: parsedAccountId,
       toolName,
       toolParams: params,
       timestamp: Date.now(),
