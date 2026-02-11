@@ -17,27 +17,58 @@ export default function register(api: OpenClawPluginApi) {
       const cfg = loadConfig();
 
       const userIdParts = session.userId.split(":");
-      const channel = session.channel || userIdParts[5] || "dingtalk";
-      const to = session.to || userIdParts[7] || session.userId;
+      // 尝试动态解析渠道：
+      // 1. 优先使用 session.originalContext 中记录的 channel (最准确)
+      // 2. 其次尝试从 session.userId (格式如 agent:main:channel:id) 解析
+      // 3. 如果都失败，回退到 "web" (Dashboard)
+      let channel = session.originalContext.channel;
+      if (!channel && userIdParts.length >= 6) {
+        // 假设 ID 结构类似于 agent:main:main:user:telegram:12345
+        // userIdParts[5] 通常是 channel name
+        channel = userIdParts[5];
+      }
+      if (!channel) {
+        channel = "web";
+      }
 
-      const resolved = resolveOutboundTarget({
-        channel,
-        to,
-        cfg,
-        accountId: session.accountId,
-        mode: "explicit",
-      });
+      const to = session.originalContext.to || userIdParts[7] || session.userId;
 
-      if (!resolved.ok) {
-        api.logger.error(`[captcha] Failed to resolve outbound target: ${String(resolved.error)}`);
+      // 如果是 web 渠道，直接跳过发送通知，因为目前不支持 WebChat 主动推送
+      if (channel === "web") {
+        api.logger.info(
+          `[captcha] Web channel detected for ${session.userId}. Skipping notification (not supported), but verification is successful.`,
+        );
         return;
+      }
+
+      let resolvedTo = to;
+      try {
+        const resolved = resolveOutboundTarget({
+          channel,
+          to,
+          cfg,
+          accountId: session.originalContext.accountId,
+          mode: "explicit",
+        });
+
+        if (resolved.ok) {
+          resolvedTo = resolved.to;
+        } else {
+          // 如果解析失败但渠道是 web，我们尝试直接发送（因为 web 通常不需要复杂的解析）
+          // 或者仅记录警告并继续（取决于 deliverOutboundPayloads 是否能处理）
+          api.logger.warn(
+            `[captcha] Failed to resolve target: ${String(resolved.error)}. Trying to send anyway for channel: ${channel}`,
+          );
+        }
+      } catch (e) {
+        api.logger.warn(`[captcha] Error resolving target: ${e}. Proceeding with original 'to'.`);
       }
 
       await deliverOutboundPayloads({
         cfg,
         channel,
-        to: resolved.to,
-        accountId: session.accountId,
+        to: resolvedTo,
+        accountId: session.originalContext.accountId,
         payloads: [
           {
             text: `✅ 二次认证成功！\n\n验证的有效期为 ${config.verificationDuration / 1000} 秒。\n\n请重新发送命令以执行操作。`,
@@ -97,9 +128,9 @@ export default function register(api: OpenClawPluginApi) {
       sessionKey: ctx.sessionKey || "",
       senderId: userId,
       commandBody: command,
-      channel: ctx.messageChannel,
-      to: ctx.agentAccountId,
-      accountId: ctx.agentAccountId,
+      channel: (ctx as any).messageChannel,
+      to: (ctx as any).agentAccountId,
+      accountId: (ctx as any).agentAccountId,
       toolName,
       toolParams: params,
       timestamp: Date.now(),
