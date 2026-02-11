@@ -11,7 +11,7 @@ import type { DynamicAgentCreationConfig } from "./types.js";
 import { resolveFeishuAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
 import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
-import { downloadImageFeishu, downloadMessageResourceFeishu } from "../../image-captcha-auth/src/feishu/media.js";
+import { downloadImageFeishu, downloadMessageResourceFeishu } from "./media.js";
 import { extractMentionTargets, extractMessageBody, isMentionForwardRequest } from "./mention.js";
 import {
   resolveFeishuGroupConfig,

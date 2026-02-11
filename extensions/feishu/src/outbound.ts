@@ -1,5 +1,5 @@
 import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk";
-import { sendMediaFeishu } from "../../image-captcha-auth/src/feishu/media.js";
+import { sendMediaFeishu } from "./media.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { sendMessageFeishu } from "./send.js";
 
