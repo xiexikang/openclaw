@@ -78,7 +78,6 @@ export default function register(api: OpenClawPluginApi) {
       }
 
       const authUrl = `http://localhost:${config.port}/captcha/${session.sessionId}`;
-      const qrPng = await renderQrPngBase64(authUrl);
 
       await deliverOutboundPayloads({
         cfg,
@@ -88,7 +87,6 @@ export default function register(api: OpenClawPluginApi) {
         payloads: [
           {
             text: `✅ 二次认证成功！\n\n验证的有效期为 ${config.verificationDuration / 1000} 秒。\n\n请重新发送命令以执行操作。`,
-            mediaUrls: [`data:image/png;base64,${qrPng}`],
           },
         ],
       });
@@ -165,7 +163,6 @@ export default function register(api: OpenClawPluginApi) {
     });
 
     const authUrl = `http://localhost:${config.port}/captcha/${session.sessionId}`;
-    const qrPng = await renderQrPngBase64(authUrl);
 
     api.logger.info(`[captcha] Blocking sensitive tool call: ${toolName} from ${userId}`);
 
@@ -198,8 +195,7 @@ export default function register(api: OpenClawPluginApi) {
           accountId: parsedAccountId,
           payloads: [
             {
-              text: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请扫描以下二维码或点击链接完成验证:\n${authUrl}\n\n验证码有效期: ${config.timeout / 1000} 秒\n\n验证成功后，请重新发送命令。`,
-              mediaUrls: [`data:image/png;base64,${qrPng}`],
+              text: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证码有效期: ${config.timeout / 1000} 秒\n\n验证成功后，请重新发送命令。`,
             },
           ],
         });

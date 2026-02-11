@@ -3,6 +3,7 @@ import http from "node:http";
 import type { CaptchaSession } from "./types.js";
 import { captchaManager } from "./captcha-manager.js";
 import { config } from "./config.js";
+import { renderQrPngBase64 } from "./qr.js";
 
 let notifyCallback: ((session: CaptchaSession) => void | Promise<void>) | null = null;
 
@@ -23,7 +24,7 @@ function escapeHtml(text: string): string {
 }
 
 export function startHttpServer() {
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
 
     if (url.pathname === "/health") {
@@ -36,7 +37,7 @@ export function startHttpServer() {
       const sessionId = url.pathname.split("/")[2];
 
       if (req.method === "GET") {
-        let session = captchaManager.getSession(sessionId);
+        let session: CaptchaSession | null | undefined = captchaManager.getSession(sessionId);
 
         if (!session) {
           res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
@@ -94,6 +95,9 @@ export function startHttpServer() {
             ? session.originalContext.commandBody.substring(0, 100) + "..."
             : session.originalContext.commandBody;
 
+        const authUrl = `http://localhost:${config.port}/captcha/${session.sessionId}`;
+        const qrCode = await renderQrPngBase64(authUrl);
+
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(`
           <!DOCTYPE html>
@@ -125,6 +129,10 @@ export function startHttpServer() {
               .result.success { background: #c6f6d5; color: #22543d; }
               .result.error { background: #fed7d7; color: #742a2a; }
               .next-step { background: #ebf8ff; padding: 15px; border-radius: 6px; margin-top: 20px; font-size: 14px; color: #2b6cb0; border-left: 4px solid #3182ce; }
+              .qr-section { text-align: center; margin: 20px 0; padding: 15px; background: #f7fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
+              .qr-section h3 { margin: 0 0 10px 0; font-size: 14px; color: #4a5568; }
+              .qr-image { display: inline-block; padding: 10px; background: white; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+              .qr-link { font-size: 12px; color: #718096; word-break: break-all; margin-top: 10px; }
             </style>
           </head>
           <body>
@@ -137,6 +145,13 @@ export function startHttpServer() {
               <div class="captcha-container">
                 <img class="captcha-image" src="?svg" alt="验证码" onclick="refreshCaptcha()">
                 <div class="captcha-hint">🔄 点击图片刷新验证码</div>
+              </div>
+              <div class="qr-section">
+                <h3>📱 认证链接二维码</h3>
+                <div class="qr-image">
+                  <img src="data:image/png;base64,${qrCode}" alt="认证二维码" width="200" height="200">
+                </div>
+                <div class="qr-link">${escapeHtml(authUrl)}</div>
               </div>
               <div class="timer">⏱️ 剩余时间: <span id="timer">${remainingTime}</span> 秒</div>
               <div class="input-group">

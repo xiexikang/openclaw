@@ -79,9 +79,9 @@ export class CaptchaManager {
     return this.sessions.get(sessionId);
   }
 
-  refresh(sessionId: string): CaptchaSession | undefined {
+  refresh(sessionId: string): CaptchaSession | null {
     const session = this.sessions.get(sessionId);
-    if (!session) return undefined;
+    if (!session) return null;
 
     const captcha = svgCaptcha.create({
       size: 4,
