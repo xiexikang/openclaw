@@ -86,7 +86,7 @@ export default function register(api: OpenClawPluginApi) {
         accountId: session.originalContext.accountId,
         payloads: [
           {
-            text: `✅ 二次认证成功！\n\n验证的有效期为 ${config.verificationDuration / 1000} 秒。\n\n请重新发送命令以执行操作。`,
+            text: `✅ 二次认证成功！\n\n请重新发送消息命令以执行操作。`,
           },
         ],
       });
@@ -195,7 +195,7 @@ export default function register(api: OpenClawPluginApi) {
           accountId: parsedAccountId,
           payloads: [
             {
-              text: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证码有效期: ${config.timeout / 1000} 秒\n\n验证成功后，请重新发送命令。`,
+              text: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: 5 分钟\n\n验证成功后，请重新发送命令。`,
             },
           ],
         });
@@ -206,7 +206,7 @@ export default function register(api: OpenClawPluginApi) {
 
     return {
       block: true,
-      blockReason: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请查看消息中的二维码或扫描验证\n\n验证码有效期: ${config.timeout / 1000} 秒`,
+      blockReason: `🔐 该操作需要二次认证`,
     };
   });
 

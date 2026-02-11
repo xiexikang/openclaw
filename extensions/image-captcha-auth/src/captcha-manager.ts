@@ -63,6 +63,23 @@ export class CaptchaManager {
     return isValid;
   }
 
+  verifyByScan(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId);
+
+    if (!session) {
+      return false;
+    }
+
+    if (Date.now() - session.timestamp > this.config.timeout) {
+      this.sessions.delete(sessionId);
+      return false;
+    }
+
+    this.verifiedUsers.set(session.userId, Date.now());
+    this.sessions.delete(sessionId);
+    return true;
+  }
+
   isUserVerified(userId: string): boolean {
     const verifiedTime = this.verifiedUsers.get(userId);
     if (!verifiedTime) return false;

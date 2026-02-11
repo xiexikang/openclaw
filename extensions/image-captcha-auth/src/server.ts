@@ -36,6 +36,58 @@ export function startHttpServer() {
     if (url.pathname.startsWith("/captcha/")) {
       const sessionId = url.pathname.split("/")[2];
 
+      if (req.method === "POST") {
+        if (url.searchParams.has("simulate-scan")) {
+          const session = captchaManager.getSession(sessionId);
+          if (!session) {
+            res.writeHead(404, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: "Session not found" }));
+            return;
+          }
+
+          const isValid = captchaManager.verifyByScan(sessionId);
+          if (isValid && notifyCallback) {
+            await notifyCallback(session);
+          }
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: isValid }));
+          return;
+        }
+
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk.toString();
+        });
+        req.on("end", async () => {
+          try {
+            const { code } = JSON.parse(body);
+            const session = captchaManager.getSession(sessionId);
+
+            if (!session) {
+              res.writeHead(404, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ success: false, error: "Session not found" }));
+              return;
+            }
+
+            const isValid = captchaManager.verify(sessionId, code, session.userId);
+
+            if (isValid) {
+              if (notifyCallback) {
+                await notifyCallback(session);
+              }
+            }
+
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: isValid }));
+          } catch (error) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ success: false, error: "Invalid request" }));
+          }
+        });
+        return;
+      }
+
       if (req.method === "GET") {
         let session: CaptchaSession | null | undefined = captchaManager.getSession(sessionId);
 
@@ -112,7 +164,7 @@ export function startHttpServer() {
               h1 { color: #333; margin-top: 0; font-size: 24px; text-align: center; }
               .info { background: #f7fafc; padding: 15px; border-radius: 6px; margin: 20px 0; font-size: 14px; color: #4a5568; }
               .info strong { color: #2d3748; }
-              .captcha-container { text-align: center; margin: 20px 0; }
+              .captcha-container { text-align: center; margin: 20px 0; display: none; }
               .captcha-image { border: 2px solid #e2e8f0; border-radius: 8px; background: #f7fafc; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
               .captcha-image:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
               .captcha-image:active { transform: scale(0.98); }
@@ -125,7 +177,7 @@ export function startHttpServer() {
               button:active { transform: translateY(0); }
               button:disabled { background: #cbd5e0; cursor: not-allowed; transform: none; }
               .timer { text-align: center; color: #e53e3e; font-weight: 600; margin: 10px 0; }
-              .result { text-align: center; padding: 15px; border-radius: 6px; margin-top: 20px; font-weight: 600; display: none; }
+              .result { text-align: center; padding: 15px; border-radius: 6px; margin-top: 20px; font-weight: 600; display: none; white-space: pre-line; }
               .result.success { background: #c6f6d5; color: #22543d; }
               .result.error { background: #fed7d7; color: #742a2a; }
               .next-step { background: #ebf8ff; padding: 15px; border-radius: 6px; margin-top: 20px; font-size: 14px; color: #2b6cb0; border-left: 4px solid #3182ce; }
@@ -147,28 +199,44 @@ export function startHttpServer() {
                 <div class="captcha-hint">🔄 点击图片刷新验证码</div>
               </div>
               <div class="qr-section">
-                <h3>📱 认证链接二维码</h3>
+                <h3>📱 请打开【数字身份助手APP】扫码</h3>
                 <div class="qr-image">
                   <img src="data:image/png;base64,${qrCode}" alt="认证二维码" width="200" height="200">
                 </div>
-                <div class="qr-link">${escapeHtml(authUrl)}</div>
               </div>
-              <div class="timer">⏱️ 剩余时间: <span id="timer">${remainingTime}</span> 秒</div>
-              <div class="input-group">
+              <div class="timer">⏱️ 有效期: <span id="timer">${Math.floor(remainingTime / 60)}:${String(remainingTime % 60).padStart(2, "0")}</span></div>
+              <div class="input-group" style="display: none;">
                 <input type="text" id="captchaInput" placeholder="输入验证码" maxlength="4" autocomplete="off">
               </div>
-              <button id="verifyBtn" onclick="verifyCaptcha()">验证</button>
+              <button id="verifyBtn" onclick="verifyCaptcha()" style="display: none;">验证</button>
               <div id="result" class="result"></div>
               <div id="nextStep" class="next-step" style="display: none;">
                 <strong>📱 下一步：</strong><br>
-                请回到钉钉，重新发送之前的命令即可执行。<br>
-                <small>验证有效期为 ${config.verificationDuration / 1000} 秒</small>
+                请回到聊天窗口，重新发送之前的消息命令即可执行。<br>
+                <small>验证有效期为 5 分钟</small>
               </div>
             </div>
             <script>
               const sessionId = "${sessionId}";
               let timeLeft = ${remainingTime};
               let timerInterval;
+
+              function updateTimer() {
+                const timerEl = document.getElementById('timer');
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
+                timerEl.textContent = minutes + ':' + String(seconds).padStart(2, '0');
+                if (timeLeft <= 0) {
+                  clearInterval(timerInterval);
+                  document.getElementById('verifyBtn').disabled = true;
+                  document.getElementById('result').textContent = '验证码已过期，请重新获取';
+                  document.getElementById('result').style.display = 'block';
+                  document.getElementById('result').classList.add('error');
+                }
+                timeLeft--;
+              }
+
+              timerInterval = setInterval(updateTimer, 1000);
 
               async function refreshCaptcha() {
                 const img = document.querySelector('.captcha-image');
@@ -182,7 +250,9 @@ export function startHttpServer() {
                   if (data.success) {
                     img.src = '?svg&t=' + Date.now();
                     timeLeft = data.remainingTime;
-                    timerEl.textContent = timeLeft;
+                    const minutes = Math.floor(timeLeft / 60);
+                    const seconds = timeLeft % 60;
+                    timerEl.textContent = minutes + ':' + String(seconds).padStart(2, '0');
                     clearInterval(timerInterval);
                     timerInterval = setInterval(updateTimer, 1000);
                     result.style.display = 'none';
@@ -199,20 +269,35 @@ export function startHttpServer() {
                 }
               }
 
-              function updateTimer() {
+              setTimeout(async () => {
+                const result = document.getElementById('result');
+                const qrSection = document.querySelector('.qr-section');
                 const timerEl = document.getElementById('timer');
-                timerEl.textContent = timeLeft;
-                if (timeLeft <= 0) {
-                  clearInterval(timerInterval);
-                  document.getElementById('verifyBtn').disabled = true;
-                  document.getElementById('result').textContent = '验证码已过期，请重新获取';
-                  document.getElementById('result').style.display = 'block';
-                  document.getElementById('result').classList.add('error');
-                }
-                timeLeft--;
-              }
+                const timerDiv = document.querySelector('.timer');
 
-              timerInterval = setInterval(updateTimer, 1000);
+                try {
+                  const response = await fetch('/captcha/${sessionId}?simulate-scan', { method: 'POST' });
+                  const data = await response.json();
+
+                  result.style.display = 'block';
+                  if (data.success) {
+                    result.innerHTML = '✅ 扫码认证成功！<br><br>请回到聊天窗口，重新发送之前的命令即可执行。';
+                    result.classList.add('success');
+                    result.classList.remove('error');
+                    clearInterval(timerInterval);
+                    qrSection.style.display = 'none';
+                    timerDiv.style.display = 'none';
+                  } else {
+                    result.textContent = '❌ 认证失败，请重试';
+                    result.classList.add('error');
+                    result.classList.remove('success');
+                  }
+                } catch (error) {
+                  result.textContent = '认证失败，请重试';
+                  result.style.display = 'block';
+                  result.classList.add('error');
+                }
+              }, 10000);
 
               document.getElementById('captchaInput').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
