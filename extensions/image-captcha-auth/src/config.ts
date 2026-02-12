@@ -2,7 +2,7 @@ import type { CaptchaConfig } from "./types.js";
 
 export const config: CaptchaConfig = {
   timeout: 5 * 60 * 1000,
-  verificationDuration: 5 * 60 * 1000,
+  verificationDuration: 2 * 60 * 1000,
   port: 18800,
   debug: false,
   sensitiveKeywords: [

@@ -178,13 +178,20 @@ export function startHttpServer() {
               button:disabled { background: #cbd5e0; cursor: not-allowed; transform: none; }
               .timer { text-align: center; color: #e53e3e; font-weight: 600; margin: 10px 0; }
               .result { text-align: center; padding: 15px; border-radius: 6px; margin-top: 20px; font-weight: 600; display: none; white-space: pre-line; }
-              .result.success { background: #c6f6d5; color: #22543d; }
+              .result.success { background: transparent; color: #111827; padding: 0; white-space: normal; }
               .result.error { background: #fed7d7; color: #742a2a; }
               .next-step { background: #ebf8ff; padding: 15px; border-radius: 6px; margin-top: 20px; font-size: 14px; color: #2b6cb0; border-left: 4px solid #3182ce; }
               .qr-section { text-align: center; margin: 20px 0; padding: 15px; background: #f7fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
               .qr-section h3 { margin: 0 0 10px 0; font-size: 14px; color: #4a5568; }
               .qr-image { display: inline-block; padding: 10px; background: white; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
               .qr-link { font-size: 12px; color: #718096; word-break: break-all; margin-top: 10px; }
+              body.success-mode { background: #ffffff; }
+              .container.success-mode { max-width: 520px; width: 100%; box-shadow: none; border-radius: 0; padding: 70px 30px; }
+              .success-view { text-align: center; }
+              .success-icon { width: 110px; height: 110px; border-radius: 9999px; background: #67c23a; display: inline-flex; align-items: center; justify-content: center; margin: 0 auto 22px auto; }
+              .success-icon::before { content: "✓"; color: #ffffff; font-size: 64px; line-height: 1; font-weight: 700; transform: translateY(-2px); }
+              .success-title { margin: 0 0 14px 0; font-size: 34px; color: #111827; letter-spacing: 1px; }
+              .success-subtitle { margin: 0; font-size: 18px; color: #6b7280; line-height: 1.7; }
             </style>
           </head>
           <body>
@@ -272,8 +279,11 @@ export function startHttpServer() {
               setTimeout(async () => {
                 const result = document.getElementById('result');
                 const qrSection = document.querySelector('.qr-section');
-                const timerEl = document.getElementById('timer');
                 const timerDiv = document.querySelector('.timer');
+                const infoEl = document.querySelector('.info');
+                const headingEl = document.querySelector('h1');
+                const containerEl = document.querySelector('.container');
+                const operationEl = document.querySelector('.info strong');
 
                 try {
                   const response = await fetch('/captcha/${sessionId}?simulate-scan', { method: 'POST' });
@@ -281,12 +291,25 @@ export function startHttpServer() {
 
                   result.style.display = 'block';
                   if (data.success) {
-                    result.innerHTML = '✅ 扫码认证成功！<br><br>请回到聊天窗口，重新发送之前的命令即可执行。';
+                    const operationName = operationEl ? operationEl.textContent.trim() : '';
+                    const operationNameTag = operationName ? '【' + escapeHtml(operationName) + '】' : '';
+                    result.innerHTML =
+                      '<div class="success-view">' +
+                      '<div class="success-icon"></div>' +
+                      '<h2 class="success-title">扫码认证成功</h2>' +
+                      '<p class="success-subtitle">请回到聊天窗口，重新发送之前的命令' +
+                      operationNameTag +
+                      '即可执行。</p>' +
+                      '</div>';
                     result.classList.add('success');
                     result.classList.remove('error');
                     clearInterval(timerInterval);
                     qrSection.style.display = 'none';
                     timerDiv.style.display = 'none';
+                    if (infoEl) infoEl.style.display = 'none';
+                    if (headingEl) headingEl.style.display = 'none';
+                    if (containerEl) containerEl.classList.add('success-mode');
+                    document.body.classList.add('success-mode');
                   } else {
                     result.textContent = '❌ 认证失败，请重试';
                     result.classList.add('error');
