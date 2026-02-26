@@ -34,6 +34,14 @@ export class CaptchaManager {
     };
 
     this.sessions.set(sessionId, session);
+
+    if (this.config.debug) {
+      console.log(`[captcha] Generated session: ${sessionId}`);
+      console.log(`[captcha] User ID: ${userId}`);
+      console.log(`[captcha] Total sessions: ${this.sessions.size}`);
+      console.log(`[captcha] All session IDs: ${Array.from(this.sessions.keys()).join(', ')}`);
+    }
+
     return session;
   }
 
@@ -66,17 +74,33 @@ export class CaptchaManager {
   verifyByScan(sessionId: string): boolean {
     const session = this.sessions.get(sessionId);
 
+    if (this.config.debug) {
+      console.log(`[captcha] verifyByScan called for sessionId: ${sessionId}`);
+      console.log(`[captcha] Session found: ${!!session}`);
+    }
+
     if (!session) {
+      if (this.config.debug) {
+        console.log(`[captcha] Session not found in verifyByScan: ${sessionId}`);
+      }
       return false;
     }
 
     if (Date.now() - session.timestamp > this.config.timeout) {
       this.sessions.delete(sessionId);
+      if (this.config.debug) {
+        console.log(`[captcha] Session expired in verifyByScan: ${sessionId}`);
+      }
       return false;
     }
 
     this.verifiedUsers.set(session.userId, Date.now());
     this.sessions.delete(sessionId);
+
+    if (this.config.debug) {
+      console.log(`[captcha] Session verified and deleted: ${sessionId}`);
+    }
+
     return true;
   }
 
@@ -94,6 +118,10 @@ export class CaptchaManager {
 
   getSession(sessionId: string): CaptchaSession | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  getSessionIds(): string[] {
+    return Array.from(this.sessions.keys());
   }
 
   refresh(sessionId: string): CaptchaSession | null {

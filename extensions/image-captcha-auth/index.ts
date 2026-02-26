@@ -211,6 +211,7 @@ export default function register(api: OpenClawPluginApi) {
   });
 
   if (!serverStarted) {
+    api.logger.info("image-captcha-auth: Starting HTTP server...");
     startHttpServer();
     serverStarted = true;
     api.logger.info("image-captcha-auth plugin loaded");

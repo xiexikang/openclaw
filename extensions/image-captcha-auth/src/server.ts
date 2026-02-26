@@ -24,6 +24,7 @@ function escapeHtml(text: string): string {
 }
 
 export function startHttpServer() {
+  console.log("[image-captcha-auth] startHttpServer called, attempting to start server on port", config.port);
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
 
@@ -89,10 +90,19 @@ export function startHttpServer() {
       }
 
       if (req.method === "GET") {
-        let session: CaptchaSession | null | undefined = captchaManager.getSession(sessionId);
+      const session = captchaManager.getSession(sessionId);
 
-        if (!session) {
-          res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+      if (config.debug) {
+        console.log(`[captcha] GET request for sessionId: ${sessionId}`);
+        console.log(`[captcha] Session found: ${!!session}`);
+        console.log(`[captcha] All sessions: ${Array.from(captchaManager.getSessionIds()).join(', ')}`);
+      }
+
+      if (!session) {
+        if (config.debug) {
+          console.log(`[captcha] Session not found or expired: ${sessionId}`);
+        }
+        res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
           res.end(`
             <!DOCTYPE html>
             <html>
