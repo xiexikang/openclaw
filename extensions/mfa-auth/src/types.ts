@@ -1,11 +1,17 @@
 export type AuthMethodType = "qr-code" | "image-captcha" | "sms" | "email";
 
+export type AuthStatus = "pending" | "verified" | "failed" | "expired";
+
 export interface AuthSession {
   sessionId: string;
   userId: string;
   authMethod: AuthMethodType;
   timestamp: number;
   originalContext: PendingAuthContext;
+  certToken?: string;
+  qrcodeContent?: string;
+  expireTimeMs?: number;
+  authStatus?: AuthStatus;
 }
 
 export interface PendingAuthContext {
@@ -46,4 +52,55 @@ export interface AuthMethodProvider {
 export interface AuthResult {
   success: boolean;
   error?: string;
+  status?: AuthStatus;
+}
+
+export interface DabbyConfig {
+  clientId: string;
+  clientSecret: string;
+  apiBaseUrl: string;
+  tokenCacheDuration: number;
+  pollInterval: number;
+}
+
+export interface DabbyAccessTokenResponse {
+  accessToken: string;
+  apiVersion: string;
+  expireSeconds: number;
+  retCode: number;
+  retMessage: string;
+  timestamp: number;
+}
+
+export interface DabbyQrCodeResponse {
+  apiVersion: string;
+  retCode: number;
+  retMessage: string;
+  tokenInfo: {
+    authType: string;
+    certToken: string;
+    createdAt: string;
+    expireAt: string;
+    expireTimeMs: number;
+    qrcodeContent: string;
+    timestamp: number;
+  };
+}
+
+export interface DabbyAuthResultResponse {
+  apiVersion: string;
+  authData: {
+    authMode: number;
+    authObject: {
+      idNum: string;
+      fullName: string;
+    };
+    authType: string;
+    portrait: string;
+    resCode: number;
+    resStr: string;
+  };
+  authInfo: Record<string, unknown>;
+  retCode: number;
+  retMessage: string;
 }

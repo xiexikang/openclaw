@@ -98,18 +98,47 @@ export function startHttpServer(): void {
           return;
         }
 
-        const provider = authManager.getProvider(session.authMethod);
-        if (!provider) {
-          res.writeHead(500, { "Content-Type": "text/plain" });
-          res.end("Provider not found");
-          return;
+        try {
+          const provider = authManager.getProvider(session.authMethod);
+          if (!provider) {
+            res.writeHead(500, { "Content-Type": "text/plain" });
+            res.end("Provider not found");
+            return;
+          }
+
+          await provider.initialize(session);
+
+          const authUrl = `http://localhost:${config.port}/mfa-auth/${session.sessionId}`;
+          const html = await provider.generateAuthPage(session, authUrl);
+
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(html);
+        } catch (error) {
+          console.error(`[mfa-auth] Error generating auth page: ${error}`);
+          res.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(`
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>错误</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f5f5f5; }
+    .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+    h1 { color: #e53e3e; margin-top: 0; }
+    p { color: #666; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>❌ 生成认证页面失败</h1>
+    <p>错误信息: ${String(error)}</p>
+    <p>请稍后重试</p>
+  </div>
+</body>
+</html>
+          `);
         }
-
-        const authUrl = `http://localhost:${config.port}/mfa-auth/${session.sessionId}`;
-        const html = await provider.generateAuthPage(session, authUrl);
-
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(html);
         return;
       }
     }

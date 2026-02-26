@@ -1,15 +1,16 @@
 # OpenClaw MFA Auth Plugin
 
-A multi-factor authentication plugin for OpenClaw with pluggable authentication providers. Currently supports QR code authentication with extensible design for future auth methods (image captcha, SMS, email).
+A multi-factor authentication plugin for OpenClaw with pluggable authentication providers. Supports QR code authentication with real Dabby third-party authentication system.
 
 ## Features
 
 - **Pluggable Auth Providers**: Easy-to-extend architecture for adding new authentication methods
-- **QR Code Authentication**: Current default method with automatic scan simulation (10s delay)
+- **QR Code Authentication**: Real scan authentication powered by Dabby API
 - **Sensitive Command Protection**: Intercepts sensitive operations requiring verification
 - **Multi-Channel Support**: Works with Discord, Telegram, Slack, WhatsApp, Signal, and Feishu
 - **User Verification State**: 2-minute verification window after successful auth
 - **Automatic Cleanup**: Periodic cleanup of expired sessions
+- **Real-time Status Updates**: Frontend polling for authentication status
 
 ## Architecture
 
@@ -24,6 +25,8 @@ extensions/mfa-auth/
 ├── src/
 │   ├── types.ts                 # TypeScript type definitions
 │   ├── config.ts                # Plugin configuration
+│   ├── dabby-client.ts          # Dabby API client
+│   ├── dabby-client.test.ts     # Unit tests for Dabby client
 │   ├── auth-manager.ts          # Core authentication manager
 │   ├── providers/               # Authentication providers
 │   │   ├── base.ts              # Base provider interface
@@ -42,43 +45,89 @@ Manages authentication sessions and user verification state:
 - Provider registration and lookup
 - User verification state management
 - Automatic cleanup of expired data
+- Authentication status updates
 
-#### AuthMethodProvider Interface
+#### Dabby Client
 
-Base interface for all authentication providers:
+Handles communication with Dabby third-party authentication API:
 
-```typescript
-interface AuthMethodProvider {
-  readonly methodType: AuthMethodType;
-  readonly name: string;
-  readonly description: string;
-
-  initialize(session: AuthSession): Promise<void>;
-  verify(sessionId: string, userInput?: string): Promise<AuthResult>;
-  cleanup(sessionId: string): void;
-  generateAuthPage(session: AuthSession, authUrl: string): Promise<string>;
-}
-```
+- Access token management with caching (2-hour TTL)
+- QR code generation
+- Authentication result polling
+- Error handling and retry logic
 
 #### QR Code Provider
 
 Implements QR code authentication with:
 
-- QR code generation using `qrcode-terminal`
-- 10-second automatic scan simulation
-- Custom HTML page with countdown timer
-- Success feedback display
+- Dabby API integration for real QR codes
+- Frontend polling mechanism (2-second interval)
+- Authentication status display (pending → scanned → verified)
+- Success/failure feedback
+
+## Dabby Authentication System
+
+### Dabby API Integration
+
+This plugin integrates with the Dabby third-party authentication system to provide real scan authentication.
+
+**Three main APIs:**
+
+1. **Get Access Token** (`GET /getaccesstoken`)
+   - Parameters: `clientId`, `clientSecret`
+   - Returns: `accessToken`, `expireSeconds: 7200`
+   - Cached for 2 hours
+
+2. **Generate QR Code** (`POST /authreq`)
+   - Parameters: `accessToken`, `authType: 'ScanAuth'`, `mode: 66`
+   - Returns: `certToken`, `qrcodeContent`, `expireTimeMs`
+   - QR code valid for 5 minutes
+
+3. **Query Auth Result** (`POST /authhist`)
+   - Parameters: `accessToken`, `authHistQry: { certToken }`
+   - Returns: `authData: { resCode, authObject }`
+   - `resCode: 0` = authentication success
+
+### Configuration
+
+To use Dabby authentication, configure the following environment variables or update `src/config.ts`:
+
+```typescript
+export const dabbyConfig: DabbyConfig = {
+  clientId: process.env.DABBY_CLIENT_ID || "",
+  clientSecret: process.env.DABBY_CLIENT_SECRET || "",
+  apiBaseUrl: "https://api.dabby.com.cn/v2/api",
+  tokenCacheDuration: 7000000,  // 2 hours - 100s buffer
+  pollInterval: 2000,  // 2 seconds
+};
+```
+
+**Environment Variables:**
+
+- `DABBY_CLIENT_ID`: Your Dabby client ID
+- `DABBY_CLIENT_SECRET`: Your Dabby client secret
 
 ## Authentication Flow
 
 1. User sends sensitive command
-2. Plugin intercepts and blocks the command
-3. Authentication session is generated
-4. User receives verification link via chat
-5. User opens link → QR code page displayed
-6. Wait 10 seconds → automatic scan simulation
-7. Success page displayed → notification sent back
-8. User re-sends command → execution allowed
+2. Plugin intercepts and blocks command
+3. Dabby client gets access token (cached if available)
+4. Dabby client generates QR code with `certToken`
+5. User receives verification link via chat
+6. User opens link → QR code page displayed (with Dabby QR content)
+7. Frontend polls verification status every 2 seconds
+8. User scans QR code with Dabby mobile app
+9. Status updates: `pending` → `scanned` → `verified`
+10. Success page displayed → notification sent back
+11. User re-sends command → execution allowed
+
+### Authentication States
+
+- **pending**: Waiting for user to scan QR code
+- **scanned**: QR code scanned, waiting for user confirmation
+- **verified**: Authentication successful
+- **failed**: Authentication failed
+- **expired**: QR code expired (5 minutes)
 
 ## Configuration
 
@@ -124,7 +173,7 @@ export class MyAuthProvider extends BaseAuthProvider {
 
   async verify(sessionId: string, userInput?: string): Promise<AuthResult> {
     // Verify user input
-    return { success: true };
+    return { success: true, status: "verified" };
   }
 
   generateAuthPage(session: AuthSession, authUrl: string): Promise<string> {
@@ -191,11 +240,24 @@ class EmailAuthProvider extends BaseAuthProvider {
 - `GET /mfa-auth/:sessionId` - Display authentication page
 - `POST /mfa-auth/verify` - Verify authentication session
 
+**Verify Endpoint Response:**
+
+```json
+{
+  "success": true,
+  "status": "verified",
+  "error": "error message (if any)"
+}
+```
+
 ## Installation
 
 1. Navigate to `extensions/mfa-auth`
 2. Run `npm install` (or `pnpm install`)
-3. Start OpenClaw gateway
+3. Configure Dabby credentials:
+   - Set `DABBY_CLIENT_ID` and `DABBY_CLIENT_SECRET` environment variables
+   - Or update `src/config.ts` directly
+4. Start OpenClaw gateway
 
 ## Testing
 
@@ -203,15 +265,30 @@ Test the QR code authentication:
 
 1. Send a sensitive command via a supported channel
 2. Click the verification link
-3. Wait 10 seconds for automatic scan
-4. See success message
-5. Re-send the command to execute
+3. Scan the QR code with Dabby mobile app
+4. Wait for status update (pending → scanned → verified)
+5. See success message
+6. Re-send the command to execute
+
+### Unit Tests
+
+Run unit tests for the Dabby client:
+
+```bash
+pnpm test src/dabby-client.test.ts
+```
 
 ## Troubleshooting
 
-- Port already in use: Change `port` in `src/config.ts`
-- Sessions not found: Check debug logs for session IDs
-- Notifications not sending: Verify channel configuration in OpenClaw config
+- **Port already in use**: Change `port` in `src/config.ts`
+- **Sessions not found**: Check debug logs for session IDs
+- **Notifications not sending**: Verify channel configuration in OpenClaw config
+- **Dabby API errors**:
+  - Verify `clientId` and `clientSecret` are correct
+  - Check network connectivity to `https://api.dabby.com.cn`
+  - Review debug logs for detailed error messages
+- **QR code not loading**: Ensure Dabby API is accessible and `accessToken` is valid
+- **Authentication timeout**: Increase `timeout` in `src/config.ts` if needed
 
 ## License
 

@@ -2,16 +2,64 @@ import type { AuthSession, AuthResult } from "../types.js";
 import { BaseAuthProvider } from "./base.js";
 import { renderQrPngBase64 } from "../qr.js";
 import { config } from "../config.js";
+import { dabbyClient } from "../dabby-client.js";
+import { authManager } from "../auth-manager.js";
 
 export class QrCodeAuthProvider extends BaseAuthProvider {
   readonly methodType = "qr-code" as const;
   readonly name = "QR Code Authentication";
   readonly description = "Scan QR code to authenticate";
 
-  async initialize(session: AuthSession): Promise<void> {}
+  async initialize(session: AuthSession): Promise<void> {
+    try {
+      const tokenInfo = await dabbyClient.getQrCode();
+
+      authManager.updateAuthStatus(session.sessionId, "pending");
+      session.certToken = tokenInfo.certToken;
+      session.qrcodeContent = tokenInfo.qrcodeContent;
+      session.expireTimeMs = tokenInfo.expireTimeMs;
+      session.authStatus = "pending";
+
+      console.log(`[mfa-auth] QR code initialized for session ${session.sessionId}`);
+    } catch (error) {
+      console.error(`[mfa-auth] Failed to initialize QR code: ${error}`);
+      throw error;
+    }
+  }
 
   async verify(sessionId: string, userInput?: string): Promise<AuthResult> {
-    return { success: true };
+    const session = authManager.getSession(sessionId);
+    if (!session) {
+      return { success: false, error: "Session not found", status: "failed" };
+    }
+
+    if (!session.certToken) {
+      return { success: false, error: "QR code not initialized", status: "failed" };
+    }
+
+    if (session.expireTimeMs && Date.now() > session.expireTimeMs) {
+      authManager.updateAuthStatus(sessionId, "expired");
+      return { success: false, error: "QR code expired", status: "expired" };
+    }
+
+    try {
+      const result = await dabbyClient.getAuthResult(session.certToken);
+
+      if (result.status === "verified") {
+        authManager.updateAuthStatus(sessionId, "verified");
+        return { success: true, status: "verified" };
+      }
+
+      if (result.status === "failed") {
+        authManager.updateAuthStatus(sessionId, "failed");
+        return { success: false, error: result.error || "Authentication failed", status: "failed" };
+      }
+
+      return { success: false, status: result.status };
+    } catch (error) {
+      console.error(`[mfa-auth] Failed to verify QR code: ${error}`);
+      return { success: false, error: String(error), status: "failed" };
+    }
   }
 
   async generateAuthPage(session: AuthSession, authUrl: string): Promise<string> {
@@ -24,7 +72,9 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
         ? session.originalContext.commandBody.substring(0, 100) + "..."
         : session.originalContext.commandBody;
 
-    const qrCode = await renderQrPngBase64(authUrl);
+    const qrCode = session.qrcodeContent
+      ? await renderQrPngBase64(session.qrcodeContent)
+      : "";
 
     return this.renderHtml(session.sessionId, commandPreview, qrCode, remainingTime);
   }
@@ -84,6 +134,19 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       color: #e53e3e;
       font-weight: 600;
       margin: 10px 0;
+    }
+    .status {
+      text-align: center;
+      padding: 10px;
+      border-radius: 6px;
+      margin: 10px 0;
+      font-weight: 600;
+      display: none;
+    }
+    .status.error {
+      background: #fed7d7;
+      color: #742a2a;
+      display: block;
     }
     .result {
       text-align: center;
@@ -173,6 +236,19 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       color: #6b7280;
       line-height: 1.7;
     }
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3498db;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
@@ -185,16 +261,18 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
     <div class="qr-section">
       <h3>📱 请打开【数字身份助手APP】扫码</h3>
       <div class="qr-image">
-        <img src="data:image/png;base64,${qrCode}" alt="认证二维码" width="200" height="200">
+        ${qrCode ? `<img src="data:image/png;base64,${qrCode}" alt="认证二维码" width="200" height="200">` : '<p class="loading"></p><p>正在生成二维码...</p>'}
       </div>
     </div>
     <div class="timer">⏱️ 有效期: <span id="timer">${Math.floor(remainingTime / 60)}:${String(remainingTime % 60).padStart(2, "0")}</span></div>
+    <div id="status" class="status"></div>
     <div id="result" class="result"></div>
   </div>
   <script>
     const sessionId = "${sessionId}";
     let timeLeft = ${remainingTime};
-    let timerInterval;
+    let pollInterval;
+    let isPolling = true;
 
     function updateTimer() {
       const timerEl = document.getElementById('timer');
@@ -202,18 +280,14 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       const seconds = timeLeft % 60;
       timerEl.textContent = minutes + ':' + String(seconds).padStart(2, '0');
       if (timeLeft <= 0) {
-        clearInterval(timerInterval);
-        const result = document.getElementById('result');
-        result.textContent = '验证码已过期，请重新获取';
-        result.style.display = 'block';
-        result.classList.add('error');
+        clearInterval(pollInterval);
+        isPolling = false;
+        showExpired();
       }
       timeLeft--;
     }
 
-    timerInterval = setInterval(updateTimer, 1000);
-
-    setTimeout(async () => {
+    function showSuccess() {
       const result = document.getElementById('result');
       const qrSection = document.querySelector('.qr-section');
       const timerDiv = document.querySelector('.timer');
@@ -221,53 +295,82 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       const headingEl = document.querySelector('h1');
       const containerEl = document.querySelector('.container');
       const operationEl = document.querySelector('.info strong');
+      const statusEl = document.getElementById('status');
 
-      try {
-        const response = await fetch('/mfa-auth/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId })
-        });
-        const data = await response.json();
+      const operationName = operationEl ? operationEl.textContent.trim() : '';
+      const operationNameTag = operationName ? '【' + escapeHtml(operationName) + '】' : '';
 
-        result.style.display = 'block';
-        if (data.success) {
-          const operationName = operationEl ? operationEl.textContent.trim() : '';
-          const operationNameTag = operationName ? '【' + escapeHtml(operationName) + '】' : '';
-          result.innerHTML =
-            '<div class="success-view">' +
-            '<div class="success-icon"></div>' +
-            '<h2 class="success-title">扫码认证成功</h2>' +
-            '<p class="success-subtitle">请回到聊天窗口，重新发送之前的命令' +
-            operationNameTag +
-            '即可执行。</p>' +
-            '</div>';
-          result.classList.add('success');
-          result.classList.remove('error');
-          clearInterval(timerInterval);
-          qrSection.style.display = 'none';
-          timerDiv.style.display = 'none';
-          if (infoEl) infoEl.style.display = 'none';
-          if (headingEl) headingEl.style.display = 'none';
-          if (containerEl) containerEl.classList.add('success-mode');
-          document.body.classList.add('success-mode');
-        } else {
-          result.textContent = '❌ 认证失败，请重试';
-          result.classList.add('error');
-          result.classList.remove('success');
-        }
-      } catch (error) {
-        result.textContent = '认证失败，请重试';
-        result.style.display = 'block';
-        result.classList.add('error');
-      }
-    }, 10000);
+      result.innerHTML =
+        '<div class="success-view">' +
+        '<div class="success-icon"></div>' +
+        '<h2 class="success-title">扫码认证成功</h2>' +
+        '<p class="success-subtitle">请回到聊天窗口，重新发送之前的命令' +
+        operationNameTag +
+        '即可执行。</p>' +
+        '</div>';
+      result.style.display = 'block';
+      result.classList.add('success');
+      result.classList.remove('error');
+
+      if (qrSection) qrSection.style.display = 'none';
+      if (timerDiv) timerDiv.style.display = 'none';
+      if (infoEl) infoEl.style.display = 'none';
+      if (headingEl) headingEl.style.display = 'none';
+      if (statusEl) statusEl.style.display = 'none';
+      if (containerEl) containerEl.classList.add('success-mode');
+      document.body.classList.add('success-mode');
+    }
+
+    function showError(message) {
+      const result = document.getElementById('result');
+      result.textContent = '❌ ' + message;
+      result.style.display = 'block';
+      result.classList.add('error');
+      result.classList.remove('success');
+      isPolling = false;
+      clearInterval(pollInterval);
+    }
+
+    function showExpired() {
+      showError('二维码已过期，请重新获取');
+    }
 
     function escapeHtml(text) {
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
     }
+
+    async function pollAuthStatus() {
+      if (!isPolling) return;
+
+      try {
+        console.log('[mfa-auth] Polling auth status for session:', sessionId);
+        const response = await fetch('/mfa-auth/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId })
+        });
+        const data = await response.json();
+        console.log('[mfa-auth] Poll response:', data);
+
+        if (data.success) {
+          clearInterval(pollInterval);
+          isPolling = false;
+          showSuccess();
+        } else if (data.status === 'failed') {
+          showError(data.error || '认证失败，请重试');
+        } else if (data.status === 'expired') {
+          showExpired();
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }
+
+    setInterval(updateTimer, 1000);
+    pollInterval = setInterval(pollAuthStatus, 2000);
+    pollAuthStatus();
   </script>
 </body>
 </html>

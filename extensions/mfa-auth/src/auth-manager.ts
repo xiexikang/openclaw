@@ -29,6 +29,7 @@ export class AuthManager {
     userId: string,
     originalContext: PendingAuthContext,
     authMethod: string = this.config.defaultAuthMethod,
+    extraFields?: Partial<AuthSession>,
   ): AuthSession | null {
     const provider = this.getProvider(authMethod);
     if (!provider) {
@@ -43,6 +44,7 @@ export class AuthManager {
       authMethod: authMethod as any,
       timestamp: Date.now(),
       originalContext,
+      ...extraFields,
     };
 
     this.sessions.set(sessionId, session);
@@ -106,6 +108,21 @@ export class AuthManager {
 
   getSessionIds(): string[] {
     return Array.from(this.sessions.keys());
+  }
+
+  updateAuthStatus(sessionId: string, status: "pending" | "scanned" | "verified" | "failed" | "expired"): void {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.authStatus = status;
+      if (this.config.debug) {
+        console.log(`[mfa-auth] Session ${sessionId} status updated to: ${status}`);
+      }
+    }
+  }
+
+  getCertToken(sessionId: string): string | undefined {
+    const session = this.sessions.get(sessionId);
+    return session?.certToken;
   }
 
   cleanup(): void {

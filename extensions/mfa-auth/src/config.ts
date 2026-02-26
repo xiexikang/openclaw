@@ -1,4 +1,4 @@
-import type { MfaConfig } from "./types.js";
+import type { MfaConfig, DabbyConfig } from "./types.js";
 
 export const config: MfaConfig = {
   timeout: 5 * 60 * 1000,
@@ -31,4 +31,12 @@ export const config: MfaConfig = {
   allowlistUsers: [],
   enabledAuthMethods: ["qr-code"],
   defaultAuthMethod: "qr-code",
+};
+
+export const dabbyConfig: DabbyConfig = {
+  clientId: process.env.DABBY_CLIENT_ID || "",
+  clientSecret: process.env.DABBY_CLIENT_SECRET || "",
+  apiBaseUrl: "https://api.dabby.com.cn/v2/api",
+  tokenCacheDuration: 7000000,
+  pollInterval: 2000,
 };
