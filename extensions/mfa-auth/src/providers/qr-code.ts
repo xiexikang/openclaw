@@ -67,6 +67,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       0,
       Math.ceil((config.timeout - (Date.now() - session.timestamp)) / 1000),
     );
+    const triggerType = session.originalContext.triggerType || "sensitive_operation";
     const commandPreview =
       session.originalContext.commandBody.length > 100
         ? session.originalContext.commandBody.substring(0, 100) + "..."
@@ -74,7 +75,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
 
     const qrCode = session.qrcodeContent ? await renderQrPngBase64(session.qrcodeContent) : "";
 
-    return this.renderHtml(session.sessionId, commandPreview, qrCode, remainingTime);
+    return this.renderHtml(session.sessionId, commandPreview, qrCode, remainingTime, triggerType);
   }
 
   private renderHtml(
@@ -82,8 +83,12 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
     commandPreview: string,
     qrCode: string,
     remainingTime: number,
+    triggerType: "first_message" | "sensitive_operation" = "sensitive_operation",
   ): string {
     const escapedPreview = this.escapeHtml(commandPreview);
+    const isFirstMessageAuth = triggerType === "first_message";
+    const pageTitle = isFirstMessageAuth ? "首次认证" : "二次认证";
+    const pageTitleWithIcon = isFirstMessageAuth ? "🔐 首次认证" : "🔐 二次认证";
 
     return `
 <!DOCTYPE html>
@@ -91,7 +96,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>二次认证</title>
+  <title>${pageTitle}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -278,7 +283,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
 </head>
 <body>
   <div class="container">
-    <h1>🔐 二次认证</h1>
+    <h1>${pageTitleWithIcon}</h1>
     <div class="info">
       <p>待验证操作:</p>
       <strong>${escapedPreview}</strong>
@@ -300,6 +305,8 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
   </div>
   <script>
     const sessionId = "${sessionId}";
+    const triggerType = "${triggerType}";
+    const isFirstMessageAuth = triggerType === "first_message";
     let timeLeft = ${remainingTime};
     let pollInterval;
     let isPolling = true;
@@ -333,13 +340,18 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       const operationName = operationEl ? operationEl.textContent.trim() : '';
       const operationNameTag = operationName ? '【' + escapeHtml(operationName) + '】' : '';
 
+      let successMessage = '';
+      if (isFirstMessageAuth) {
+        successMessage = '请回到聊天窗口，继续与AI 机器人对话。。';
+      } else {
+        successMessage = '请回到聊天窗口，重新发送之前的命令' + operationNameTag + '即可执行。';
+      }
+
       result.innerHTML =
         '<div class="success-view">' +
         '<div class="success-icon"></div>' +
         '<h2 class="success-title">扫码认证成功</h2>' +
-        '<p class="success-subtitle">请回到聊天窗口，重新发送之前的命令' +
-        operationNameTag +
-        '即可执行。</p>' +
+        '<p class="success-subtitle">' + successMessage + '</p>' +
         '</div>';
       result.style.display = 'block';
       result.classList.add('success');

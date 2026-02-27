@@ -2,19 +2,127 @@ import crypto from "node:crypto";
 import { config } from "./config.js";
 import type { AuthSession, AuthMethodProvider, AuthResult, PendingAuthContext } from "./types.js";
 
+interface FirstMessageAuthRecord {
+  verifiedAt: number;
+}
+
 export class AuthManager {
   private sessions = new Map<string, AuthSession>();
-  public verifiedUsers = new Map<string, number>();
+  public verifiedForSensitiveOps = new Map<string, number>();
+  private verifiedForFirstMessage = new Map<string, number>();
   private providers = new Map<string, AuthMethodProvider>();
   private config = config;
   private pendingExecutions = new Map<string, { sessionId: string; timestamp: number }>();
+  private persistDir: string;
 
   constructor() {
+    this.persistDir = this.resolvePersistDir();
+    this.loadPersistedFirstMessageAuth();
     setInterval(() => this.cleanup(), 30000);
+  }
+
+  private resolvePersistDir(): string {
+    const dir = this.config.persistAuthStateDir || "~/.openclaw/mfa-auth/";
+    if (dir.startsWith("~/")) {
+      const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+      return dir.replace("~", homeDir);
+    }
+    return dir;
+  }
+
+  private getPersistFilePath(): string {
+    return `${this.persistDir}/first-message-auth.json`;
   }
 
   registerProvider(provider: AuthMethodProvider): void {
     this.providers.set(provider.methodType, provider);
+  }
+
+  loadPersistedFirstMessageAuth(): void {
+    const filePath = this.getPersistFilePath();
+    try {
+      const fs = require("node:fs");
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const records = JSON.parse(content) as Record<string, FirstMessageAuthRecord>;
+        const now = Date.now();
+        const duration = this.config.firstMessageAuthDuration || 24 * 60 * 60 * 1000;
+
+        for (const [userId, record] of Object.entries(records)) {
+          if (now - record.verifiedAt < duration) {
+            this.verifiedForFirstMessage.set(userId, record.verifiedAt);
+          }
+        }
+
+        if (this.config.debug) {
+          console.log(
+            `[mfa-auth] Loaded ${this.verifiedForFirstMessage.size} first message auth records from ${filePath}`,
+          );
+        }
+      }
+    } catch (error) {
+      console.error(`[mfa-auth] Failed to load persisted auth state: ${String(error)}`);
+    }
+  }
+
+  persistFirstMessageAuth(userId: string): void {
+    const filePath = this.getPersistFilePath();
+    try {
+      const fs = require("node:fs");
+      const path = require("node:path");
+
+      const records: Record<string, FirstMessageAuthRecord> = {};
+      this.verifiedForFirstMessage.forEach((timestamp, id) => {
+        records[id] = { verifiedAt: timestamp };
+      });
+
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      fs.writeFileSync(filePath, JSON.stringify(records, null, 2), "utf-8");
+
+      if (this.config.debug) {
+        console.log(`[mfa-auth] Persisted first message auth state for ${userId} to ${filePath}`);
+      }
+    } catch (error) {
+      console.error(`[mfa-auth] Failed to persist auth state: ${String(error)}`);
+    }
+  }
+
+  clearFirstMessageAuth(userId: string): void {
+    this.verifiedForFirstMessage.delete(userId);
+    this.persistFirstMessageAuth(userId);
+    if (this.config.debug) {
+      console.log(`[mfa-auth] Cleared first message auth for user ${userId}`);
+    }
+  }
+
+  isUserVerifiedForFirstMessage(userId: string): boolean {
+    const verifiedTime = this.verifiedForFirstMessage.get(userId);
+    if (!verifiedTime) return false;
+
+    const duration = this.config.firstMessageAuthDuration || 24 * 60 * 60 * 1000;
+    if (Date.now() - verifiedTime > duration) {
+      this.verifiedForFirstMessage.delete(userId);
+      this.persistFirstMessageAuth(userId);
+      return false;
+    }
+
+    return true;
+  }
+
+  isUserVerifiedForSensitiveOps(userId: string): boolean {
+    const verifiedTime = this.verifiedForSensitiveOps.get(userId);
+    if (!verifiedTime) return false;
+
+    if (Date.now() - verifiedTime > this.config.verificationDuration) {
+      this.verifiedForSensitiveOps.delete(userId);
+      return false;
+    }
+
+    return true;
   }
 
   getProvider(methodType: string): AuthMethodProvider | undefined {
@@ -75,12 +183,20 @@ export class AuthManager {
     const result = await provider.verify(sessionId, userInput);
 
     if (result.success) {
-      this.verifiedUsers.set(session.userId, Date.now());
+      const triggerType = session.originalContext.triggerType || "sensitive_operation";
+
+      if (triggerType === "first_message") {
+        this.verifiedForFirstMessage.set(session.userId, Date.now());
+        this.persistFirstMessageAuth(session.userId);
+      } else {
+        this.verifiedForSensitiveOps.set(session.userId, Date.now());
+      }
+
       this.sessions.delete(sessionId);
 
       if (this.config.debug) {
         console.log(`[mfa-auth] Session verified and deleted: ${sessionId}`);
-        console.log(`[mfa-auth] User ${session.userId} marked as verified`);
+        console.log(`[mfa-auth] User ${session.userId} marked as verified (${triggerType})`);
       }
     }
 
@@ -88,15 +204,7 @@ export class AuthManager {
   }
 
   isUserVerified(userId: string): boolean {
-    const verifiedTime = this.verifiedUsers.get(userId);
-    if (!verifiedTime) return false;
-
-    if (Date.now() - verifiedTime > this.config.verificationDuration) {
-      this.verifiedUsers.delete(userId);
-      return false;
-    }
-
-    return true;
+    return this.isUserVerifiedForSensitiveOps(userId);
   }
 
   getSession(sessionId: string): AuthSession | undefined {
@@ -140,9 +248,18 @@ export class AuthManager {
       }
     }
 
-    for (const [userId, verifiedTime] of this.verifiedUsers.entries()) {
+    for (const [userId, verifiedTime] of this.verifiedForSensitiveOps.entries()) {
       if (now - verifiedTime > this.config.verificationDuration) {
-        this.verifiedUsers.delete(userId);
+        this.verifiedForSensitiveOps.delete(userId);
+        cleanedCount++;
+      }
+    }
+
+    const firstMessageDuration = this.config.firstMessageAuthDuration || 24 * 60 * 60 * 1000;
+    for (const [userId, verifiedTime] of this.verifiedForFirstMessage.entries()) {
+      if (now - verifiedTime > firstMessageDuration) {
+        this.verifiedForFirstMessage.delete(userId);
+        this.persistFirstMessageAuth(userId);
         cleanedCount++;
       }
     }
@@ -187,10 +304,18 @@ export class AuthManager {
     return now - pending.timestamp < 10 * 60 * 1000;
   }
 
-  markUserVerified(userId: string): void {
-    this.verifiedUsers.set(userId, Date.now());
+  markUserVerified(
+    userId: string,
+    triggerType: "first_message" | "sensitive_operation" = "sensitive_operation",
+  ): void {
+    if (triggerType === "first_message") {
+      this.verifiedForFirstMessage.set(userId, Date.now());
+      this.persistFirstMessageAuth(userId);
+    } else {
+      this.verifiedForSensitiveOps.set(userId, Date.now());
+    }
     if (this.config.debug) {
-      console.log(`[mfa-auth] Marked user ${userId} as verified`);
+      console.log(`[mfa-auth] Marked user ${userId} as verified (${triggerType})`);
     }
   }
 }

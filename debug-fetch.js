@@ -1,14 +1,13 @@
-
 async function testFetch() {
   const url = "https://api.dabby.com.cn/v2/api/getaccesstoken";
   const params = new URLSearchParams({
     clientId: "test",
-    clientSecret: "test"
+    clientSecret: "test",
   });
   const fullUrl = `${url}?${params.toString()}`;
-  
+
   console.log(`Fetching ${fullUrl}...`);
-  
+
   try {
     const response = await fetch(fullUrl, {
       method: "GET",

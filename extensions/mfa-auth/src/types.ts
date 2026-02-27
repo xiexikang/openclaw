@@ -14,6 +14,8 @@ export interface AuthSession {
   authStatus?: AuthStatus;
 }
 
+export type AuthTriggerType = "first_message" | "sensitive_operation";
+
 export interface PendingAuthContext {
   sessionKey: string;
   senderId: string;
@@ -26,6 +28,7 @@ export interface PendingAuthContext {
   toolParams: Record<string, unknown>;
   timestamp: number;
   pendingExecutionId?: string;
+  triggerType?: AuthTriggerType;
 }
 
 export interface MfaConfig {
@@ -37,6 +40,9 @@ export interface MfaConfig {
   allowlistUsers: string[];
   enabledAuthMethods: AuthMethodType[];
   defaultAuthMethod: AuthMethodType;
+  persistAuthStateDir?: string;
+  requireAuthOnFirstMessage?: boolean;
+  firstMessageAuthDuration?: number;
 }
 
 export interface AuthMethodProvider {

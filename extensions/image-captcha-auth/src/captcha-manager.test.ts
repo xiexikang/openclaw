@@ -19,7 +19,14 @@ describe("CaptchaManager", () => {
   });
 
   it("should generate a captcha session", () => {
-    const session = manager.generate("user123", { commandBody: "test command" });
+    const session = manager.generate("user123", {
+      sessionKey: "test:key",
+      senderId: "user123",
+      commandBody: "test command",
+      toolName: "",
+      toolParams: {},
+      timestamp: Date.now(),
+    });
     expect(session.sessionId).toBeDefined();
     expect(session.code).toBeDefined();
     expect(session.svg).toBeDefined();
@@ -27,19 +34,40 @@ describe("CaptchaManager", () => {
   });
 
   it("should verify correct captcha code", () => {
-    const session = manager.generate("user123", { commandBody: "test command" });
+    const session = manager.generate("user123", {
+      sessionKey: "test:key",
+      senderId: "user123",
+      commandBody: "test command",
+      toolName: "",
+      toolParams: {},
+      timestamp: Date.now(),
+    });
     const verified = manager.verify(session.sessionId, session.code, "user123");
     expect(verified).toBe(true);
   });
 
   it("should reject incorrect captcha code", () => {
-    const session = manager.generate("user123", { commandBody: "test command" });
+    const session = manager.generate("user123", {
+      sessionKey: "test:key",
+      senderId: "user123",
+      commandBody: "test command",
+      toolName: "",
+      toolParams: {},
+      timestamp: Date.now(),
+    });
     const verified = manager.verify(session.sessionId, "wrong", "user123");
     expect(verified).toBe(false);
   });
 
   it("should refresh captcha code", () => {
-    const session = manager.generate("user123", { commandBody: "test command" });
+    const session = manager.generate("user123", {
+      sessionKey: "test:key",
+      senderId: "user123",
+      commandBody: "test command",
+      toolName: "",
+      toolParams: {},
+      timestamp: Date.now(),
+    });
     const originalCode = session.code;
     const originalSvg = session.svg;
 
@@ -57,7 +85,14 @@ describe("CaptchaManager", () => {
   });
 
   it("should mark user as verified after successful captcha", () => {
-    const session = manager.generate("user123", { commandBody: "test command" });
+    const session = manager.generate("user123", {
+      sessionKey: "test:key",
+      senderId: "user123",
+      commandBody: "test command",
+      toolName: "",
+      toolParams: {},
+      timestamp: Date.now(),
+    });
     manager.verify(session.sessionId, session.code, "user123");
 
     expect(manager.isUserVerified("user123")).toBe(true);

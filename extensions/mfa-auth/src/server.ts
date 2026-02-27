@@ -3,8 +3,8 @@ import { authManager } from "./auth-manager.js";
 import { config } from "./config.js";
 import { dabbyClient } from "./dabby-client.js";
 import { qrCodeAuthProvider } from "./providers/qr-code.js";
-import type { AuthSession } from "./types.js";
 import { renderQrPngBase64 } from "./qr.js";
+import type { AuthSession } from "./types.js";
 
 let notifyCallback: ((session: AuthSession) => void | Promise<void>) | null = null;
 
@@ -87,7 +87,7 @@ export function startHttpServer(): void {
               console.log(`[mfa-auth] QR code refreshed for session ${session.sessionId}`);
 
               const qrcodeBase64 = await renderQrPngBase64(session.qrcodeContent);
-              
+
               // 计算剩余时间
               const remainingTime = Math.max(
                 0,
@@ -95,12 +95,14 @@ export function startHttpServer(): void {
               );
 
               res.writeHead(200, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ 
-                success: true, 
-                qrcodeBase64,
-                expireTimeMs: session.expireTimeMs,
-                remainingTime
-              }));
+              res.end(
+                JSON.stringify({
+                  success: true,
+                  qrcodeBase64,
+                  expireTimeMs: session.expireTimeMs,
+                  remainingTime,
+                }),
+              );
             } catch (error) {
               console.error(`[mfa-auth] Failed to refresh QR code: ${error}`);
               res.writeHead(500, { "Content-Type": "application/json" });

@@ -18,6 +18,8 @@ export interface PendingAuthContext {
   toolName: string;
   toolParams: Record<string, unknown>;
   timestamp: number;
+  pendingExecutionId?: string;
+  triggerType?: string;
 }
 
 export interface CaptchaConfig {

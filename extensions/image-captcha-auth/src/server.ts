@@ -93,7 +93,7 @@ export function startHttpServer() {
       }
 
       if (req.method === "GET") {
-        const session = captchaManager.getSession(sessionId);
+        let session: CaptchaSession | null | undefined = captchaManager.getSession(sessionId);
 
         if (config.debug) {
           console.log(`[captcha] GET request for sessionId: ${sessionId}`);
