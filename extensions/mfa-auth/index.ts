@@ -40,7 +40,7 @@ export default function register(api: OpenClawPluginApi) {
           payloads: [
             {
               text: isFirstMessageAuth
-                ? `🎉 首次认证成功！您可以继续与 AI 对话。`
+                ? `🎉 首次认证成功！请重新发送消息以继续对话。`
                 : `✅ 二次认证成功！\n\n请回到聊天窗口，重新发送之前的命令（或回复'确认'）即可执行。`,
             },
           ],
@@ -68,15 +68,17 @@ export default function register(api: OpenClawPluginApi) {
         api.logger.warn(`[mfa-auth] Error resolving target: ${e}. Proceeding with original 'to'.`);
       }
 
+      const finalTo = resolvedTo.startsWith(`${channel}:`) ? resolvedTo.slice(`${channel}:`.length) : resolvedTo;
+
       if (isFirstMessageAuth) {
         await deliverOutboundPayloads({
           cfg,
           channel,
-          to: resolvedTo,
+          to: finalTo,
           accountId,
           payloads: [
             {
-              text: `🎉 首次认证成功！您可以继续与 AI 对话。`,
+              text: `🎉 首次认证成功！请重新发送消息以继续对话。`,
             },
           ],
         });
@@ -86,17 +88,17 @@ export default function register(api: OpenClawPluginApi) {
       try {
         switch (channel) {
           case "telegram":
-            await sendMessageTelegram(resolvedTo, commandBody, { accountId });
+            await sendMessageTelegram(finalTo, commandBody, { accountId });
             break;
           case "discord":
-            await sendMessageDiscord(resolvedTo, commandBody, { accountId });
+            await sendMessageDiscord(finalTo, commandBody, { accountId });
             break;
           case "slack":
-            await sendMessageSlack(resolvedTo, commandBody, { accountId });
+            await sendMessageSlack(finalTo, commandBody, { accountId });
             break;
           case "whatsapp":
           case "signal":
-            await sendMessageSignal(resolvedTo, commandBody, { accountId });
+            await sendMessageSignal(finalTo, commandBody, { accountId });
             break;
           default:
             api.logger.warn(
@@ -105,11 +107,11 @@ export default function register(api: OpenClawPluginApi) {
             await deliverOutboundPayloads({
               cfg,
               channel,
-              to: resolvedTo,
+              to: finalTo,
               accountId,
               payloads: [
                 {
-                  text: `✅ 二次认证成功！\n\n请回复“确认”或者重新发送消息命令以执行操作。`,
+                  text: `✅ 二次认证成功！\n\n请重新发送之前的命令以执行操作。`,
                 },
               ],
             });
@@ -122,11 +124,11 @@ export default function register(api: OpenClawPluginApi) {
         await deliverOutboundPayloads({
           cfg,
           channel,
-          to: resolvedTo,
+          to: finalTo,
           accountId,
           payloads: [
             {
-              text: `✅ 二次认证成功！\n\n自动执行失败，请回复“确认”或者重新发送消息命令以执行操作。`,
+              text: `✅ 二次认证成功！\n\n自动执行失败，请重新发送之前的命令以执行操作。`,
             },
           ],
         });

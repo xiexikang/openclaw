@@ -342,9 +342,9 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
 
       let successMessage = '';
       if (isFirstMessageAuth) {
-        successMessage = '请回到聊天窗口，继续与AI 机器人对话。。';
+        successMessage = '✅ 认证成功！请回到聊天窗口，重新发送消息以继续对话。';
       } else {
-        successMessage = '请回到聊天窗口，重新发送之前的命令' + operationNameTag + '即可执行。';
+        successMessage = '✅ 认证成功！请回到聊天窗口，重新发送之前的命令' + operationNameTag + '即可执行。';
       }
 
       result.innerHTML =
