@@ -8,8 +8,9 @@ A multi-factor authentication plugin for OpenClaw with pluggable authentication 
 - **QR Code Authentication**: Real scan authentication powered by Dabby API
 - **Sensitive Command Protection**: Intercepts sensitive operations requiring verification
 - **Multi-Channel Support**: Works with Discord, Telegram, Slack, WhatsApp, Signal, and Feishu
+- **Auto-Execute After Auth**: Commands automatically execute after successful verification (no need to re-send)
 - **User Verification State**: 2-minute verification window after successful auth
-- **Automatic Cleanup**: Periodic cleanup of expired sessions
+- **Automatic Cleanup**: Periodic cleanup of expired sessions and pending executions
 - **Real-time Status Updates**: Frontend polling for authentication status
 
 ## Architecture
@@ -44,7 +45,8 @@ Manages authentication sessions and user verification state:
 - Session generation and tracking
 - Provider registration and lookup
 - User verification state management
-- Automatic cleanup of expired data
+- Pending execution tracking (for auto-execute feature)
+- Automatic cleanup of expired data (sessions, verified users, pending executions)
 - Authentication status updates
 
 #### Dabby Client
@@ -97,8 +99,8 @@ export const dabbyConfig: DabbyConfig = {
   clientId: process.env.DABBY_CLIENT_ID || "",
   clientSecret: process.env.DABBY_CLIENT_SECRET || "",
   apiBaseUrl: "https://api.dabby.com.cn/v2/api",
-  tokenCacheDuration: 7000000,  // 2 hours - 100s buffer
-  pollInterval: 2000,  // 2 seconds
+  tokenCacheDuration: 7000000, // 2 hours - 100s buffer
+  pollInterval: 2000, // 2 seconds
 };
 ```
 
@@ -119,7 +121,7 @@ export const dabbyConfig: DabbyConfig = {
 8. User scans QR code with Dabby mobile app
 9. Status updates: `pending` → `scanned` → `verified`
 10. Success page displayed → notification sent back
-11. User re-sends command → execution allowed
+11. **Command automatically executes** (no need to re-send)
 
 ### Authentication States
 
@@ -128,6 +130,23 @@ export const dabbyConfig: DabbyConfig = {
 - **verified**: Authentication successful
 - **failed**: Authentication failed
 - **expired**: QR code expired (5 minutes)
+
+### Auto-Execute Feature
+
+After successful authentication, the plugin automatically re-sends the original command through the same channel. This eliminates the need for users to manually re-send commands.
+
+**How it works:**
+
+1. When a command is intercepted, the plugin stores the command context
+2. After successful verification, the plugin sends the original command via `api.runtime.channel.*`
+3. The command is processed normally (without interception since user is verified)
+4. Verification state is cached for 2 minutes
+
+**Limitations:**
+
+- **Web channel**: Not supported (falls back to manual notification)
+- **Channel errors**: If sending the command fails, users receive a fallback notification
+- **Pending execution timeout**: Stored commands expire after 10 minutes
 
 ## Configuration
 
@@ -261,14 +280,14 @@ class EmailAuthProvider extends BaseAuthProvider {
 
 ## Testing
 
-Test the QR code authentication:
+Test QR code authentication:
 
 1. Send a sensitive command via a supported channel
 2. Click the verification link
 3. Scan the QR code with Dabby mobile app
 4. Wait for status update (pending → scanned → verified)
 5. See success message
-6. Re-send the command to execute
+6. **Command executes automatically** (no need to re-send)
 
 ### Unit Tests
 

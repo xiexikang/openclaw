@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { CaptchaConfig } from "./types.js";
 import { CaptchaManager } from "./captcha-manager.js";
+import type { CaptchaConfig } from "./types.js";
 
 const testConfig: CaptchaConfig = {
   timeout: 5000,

@@ -1,12 +1,16 @@
-import type { OpenClawPluginApi } from "../../src/plugins/types.js";
-import type { AuthSession } from "./src/types.js";
 import { loadConfig } from "../../src/config/io.js";
+import { sendMessageDiscord } from "../../src/discord/send.outbound.js";
 import { deliverOutboundPayloads } from "../../src/infra/outbound/deliver.js";
 import { resolveOutboundTarget } from "../../src/infra/outbound/targets.js";
+import type { OpenClawPluginApi } from "../../src/plugins/types.js";
+import { sendMessageSignal } from "../../src/signal/send.js";
+import { sendMessageSlack } from "../../src/slack/send.js";
+import { sendMessageTelegram } from "../../src/telegram/send.js";
 import { authManager } from "./src/auth-manager.js";
 import { config } from "./src/config.js";
 import { qrCodeAuthProvider } from "./src/providers/qr-code.js";
 import { startHttpServer, setNotifyCallback } from "./src/server.js";
+import type { AuthSession } from "./src/types.js";
 
 let serverStarted = false;
 
@@ -14,42 +18,33 @@ export default function register(api: OpenClawPluginApi) {
   authManager.registerProvider(qrCodeAuthProvider);
 
   setNotifyCallback(async (session: AuthSession) => {
-    api.logger.info(`[mfa-auth] User ${session.userId} verified, sending notification`);
+    api.logger.info(`[mfa-auth] User ${session.userId} verified, auto-executing pending command`);
 
     try {
       const cfg = loadConfig();
+      const commandBody = session.originalContext.commandBody;
+      const channel = session.originalContext.channel;
 
-      const userIdParts = session.userId.split(":");
-      let channel = session.originalContext.channel;
-
-      if (!channel) {
-        const knownChannels = ["discord", "telegram", "slack", "whatsapp", "signal", "feishu"];
-
-        for (const part of userIdParts) {
-          if (knownChannels.includes(part)) {
-            channel = part;
-            break;
-          }
-        }
-      }
-
-      if (!channel || channel === "main") {
-        channel = "web";
-      }
-
-      const to =
-        session.originalContext.to || userIdParts[userIdParts.length - 1] || session.userId;
-
-      api.logger.info(
-        `[mfa-auth] Resolved channel: ${channel}, to: ${to} for user: ${session.userId}`,
-      );
-
-      if (channel === "web") {
+      if (!channel || channel === "web") {
         api.logger.info(
-          `[mfa-auth] Web channel detected for ${session.userId}. Skipping notification (not supported), but verification is successful.`,
+          `[mfa-auth] Web channel detected or no channel for ${session.userId}. Sending fallback notification.`,
         );
+        await deliverOutboundPayloads({
+          cfg,
+          channel: "web",
+          to: "",
+          accountId: session.originalContext.accountId,
+          payloads: [
+            {
+              text: `✅ 二次认证成功！\n\n请回到聊天窗口，重新发送之前的命令（或回复'确认'）即可执行。`,
+            },
+          ],
+        });
         return;
       }
+
+      const to = session.originalContext.to || session.userId;
+      const accountId = session.originalContext.accountId;
 
       let resolvedTo = to;
       try {
@@ -57,36 +52,67 @@ export default function register(api: OpenClawPluginApi) {
           channel,
           to,
           cfg,
-          accountId: session.originalContext.accountId,
+          accountId,
           mode: "explicit",
         });
 
         if (resolved.ok) {
           resolvedTo = resolved.to;
-        } else {
-          api.logger.warn(
-            `[mfa-auth] Failed to resolve target: ${String(resolved.error)}. Trying to send anyway for channel: ${channel}`,
-          );
         }
       } catch (e) {
         api.logger.warn(`[mfa-auth] Error resolving target: ${e}. Proceeding with original 'to'.`);
       }
 
-      await deliverOutboundPayloads({
-        cfg,
-        channel,
-        to: resolvedTo,
-        accountId: session.originalContext.accountId,
-        payloads: [
-          {
-            text: `✅ 二次认证成功！\n\n请重新发送消息命令以执行操作。`,
-          },
-        ],
-      });
+      try {
+        switch (channel) {
+          case "telegram":
+            await sendMessageTelegram(resolvedTo, commandBody, { accountId });
+            break;
+          case "discord":
+            await sendMessageDiscord(resolvedTo, commandBody, { accountId });
+            break;
+          case "slack":
+            await sendMessageSlack(resolvedTo, commandBody, { accountId });
+            break;
+          case "whatsapp":
+          case "signal":
+            await sendMessageSignal(resolvedTo, commandBody, { accountId });
+            break;
+          default:
+            api.logger.warn(
+              `[mfa-auth] Unsupported channel for auto-execution: ${channel}. Sending fallback notification.`,
+            );
+            await deliverOutboundPayloads({
+              cfg,
+              channel,
+              to: resolvedTo,
+              accountId,
+              payloads: [
+                {
+                  text: `✅ 二次认证成功！\n\n请回复“确认”或者重新发送消息命令以执行操作。`,
+                },
+              ],
+            });
+            return;
+        }
 
-      api.logger.info(`[mfa-auth] Notification sent successfully to ${session.userId}`);
+        api.logger.info(`[mfa-auth] Auto-executed command for ${session.userId} via ${channel}`);
+      } catch (error) {
+        api.logger.error(`[mfa-auth] Failed to auto-execute command: ${String(error)}`);
+        await deliverOutboundPayloads({
+          cfg,
+          channel,
+          to: resolvedTo,
+          accountId,
+          payloads: [
+            {
+              text: `✅ 二次认证成功！\n\n自动执行失败，请回复“确认”或者重新发送消息命令以执行操作。`,
+            },
+          ],
+        });
+      }
     } catch (error) {
-      api.logger.error(`[mfa-auth] Failed to send notification: ${String(error)}`);
+      api.logger.error(`[mfa-auth] Failed in notify callback: ${String(error)}`);
     }
   });
 
@@ -131,6 +157,10 @@ export default function register(api: OpenClawPluginApi) {
       api.logger.info(`[mfa-auth] User ${userId} is verified, allowing`);
       return undefined;
     }
+
+    api.logger.info(
+      `[mfa-auth] User ${userId} is NOT verified. Current verified users: ${Array.from(authManager.verifiedUsers.keys()).join(", ")}`,
+    );
 
     const sessionKey = ctx.sessionKey || "";
     const sessionKeyParts = sessionKey.split(":").filter(Boolean);
@@ -193,7 +223,7 @@ export default function register(api: OpenClawPluginApi) {
           accountId: parsedAccountId,
           payloads: [
             {
-              text: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: 5 分钟\n\n验证成功后，请重新发送命令。`,
+              text: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复“确认”或者重新发送之前的命令以继续执行。`,
             },
           ],
         });
@@ -201,6 +231,8 @@ export default function register(api: OpenClawPluginApi) {
         api.logger.error(`[mfa-auth] Failed to send auth notification: ${String(error)}`);
       }
     }
+
+    authManager.registerPendingExecution(userId, session.sessionId);
 
     return {
       block: true,
@@ -221,7 +253,7 @@ function checkSensitiveOperation(text: string): { isSensitive: boolean; preview:
 
   for (const keyword of config.sensitiveKeywords) {
     if (lowerText.includes(keyword.toLowerCase())) {
-      const preview = text.length > 50 ? text.substring(0, 50) + "..." : text;
+      const preview = text;
       return { isSensitive: true, preview };
     }
   }

@@ -26,7 +26,7 @@ export const config: MfaConfig = {
     "restart",
     "shutdown",
     "reboot",
-    "gateway",
+    "gateway"
   ],
   allowlistUsers: [],
   enabledAuthMethods: ["qr-code"],
@@ -34,8 +34,8 @@ export const config: MfaConfig = {
 };
 
 export const dabbyConfig: DabbyConfig = {
-  clientId: process.env.DABBY_CLIENT_ID || "",
-  clientSecret: process.env.DABBY_CLIENT_SECRET || "",
+  clientId: process.env.DABBY_CLIENT_ID || "b76237dd43dc122d",
+  clientSecret: process.env.DABBY_CLIENT_SECRET || "9b1e2caa-f086-44d7-b1bc-924c4733c248",
   apiBaseUrl: "https://api.dabby.com.cn/v2/api",
   tokenCacheDuration: 7000000,
   pollInterval: 2000,

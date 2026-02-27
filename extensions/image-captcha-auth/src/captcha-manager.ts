@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import svgCaptcha from "svg-captcha";
-import type { CaptchaSession, CaptchaConfig, PendingAuthContext } from "./types.js";
 import { config } from "./config.js";
+import type { CaptchaSession, CaptchaConfig, PendingAuthContext } from "./types.js";
 
 export class CaptchaManager {
   private sessions = new Map<string, CaptchaSession>();
@@ -39,7 +39,7 @@ export class CaptchaManager {
       console.log(`[captcha] Generated session: ${sessionId}`);
       console.log(`[captcha] User ID: ${userId}`);
       console.log(`[captcha] Total sessions: ${this.sessions.size}`);
-      console.log(`[captcha] All session IDs: ${Array.from(this.sessions.keys()).join(', ')}`);
+      console.log(`[captcha] All session IDs: ${Array.from(this.sessions.keys()).join(", ")}`);
     }
 
     return session;

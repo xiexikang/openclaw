@@ -1,12 +1,12 @@
-import type { OpenClawPluginApi } from "../../src/plugins/types.js";
-import type { CaptchaSession } from "./src/types.js";
 import { loadConfig } from "../../src/config/io.js";
 import { deliverOutboundPayloads } from "../../src/infra/outbound/deliver.js";
 import { resolveOutboundTarget } from "../../src/infra/outbound/targets.js";
+import type { OpenClawPluginApi } from "../../src/plugins/types.js";
 import { captchaManager } from "./src/captcha-manager.js";
 import { config } from "./src/config.js";
 import { renderQrPngBase64 } from "./src/qr.js";
 import { startHttpServer, setNotifyCallback } from "./src/server.js";
+import type { CaptchaSession } from "./src/types.js";
 
 let serverStarted = false;
 

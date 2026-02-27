@@ -24,44 +24,40 @@ extensions/mfa-auth/
 ### 核心特性
 
 1. **可插拔认证提供者**
+   - 定义 `AuthMethodProvider` 接口
 
-   * 定义 `AuthMethodProvider` 接口
+   - 当前实现 `QrCodeAuthProvider`（二维码认证）
 
-   * 当前实现 `QrCodeAuthProvider`（二维码认证）
-
-   * 预留接口：`ImageCaptchaAuthProvider`、`SmsAuthProvider`、`EmailAuthProvider`
+   - 预留接口：`ImageCaptchaAuthProvider`、`SmsAuthProvider`、`EmailAuthProvider`
 
 2. **认证管理器**
+   - 管理多个认证会话
 
-   * 管理多个认证会话
+   - 支持用户验证状态追踪
 
-   * 支持用户验证状态追踪
-
-   * 自动清理过期会话
+   - 自动清理过期会话
 
 3. **功能流程**（与 image-captcha-auth 一致）
+   - 用户发送敏感命令 → 系统拦截并发送验证链接
 
-   * 用户发送敏感命令 → 系统拦截并发送验证链接
+   - 打开验证链接 → 显示二维码页面
 
-   * 打开验证链接 → 显示二维码页面
+   - 等待 10 秒 → 自动模拟扫码成功
 
-   * 等待 10 秒 → 自动模拟扫码成功
+   - 显示成功提示 → 发送通知消息回机器人
 
-   * 显示成功提示 → 发送通知消息回机器人
-
-   * 用户重新发送命令 → 正常执行
+   - 用户重新发送命令 → 正常执行
 
 4. **配置项**
+   - 验证超时时间（5 分钟）
 
-   * 验证超时时间（5 分钟）
+   - 验证通过后免验证时长（2 分钟）
 
-   * 验证通过后免验证时长（2 分钟）
+   - HTTP 服务器端口（18801）
 
-   * HTTP 服务器端口（18801）
+   - 敏感关键词列表
 
-   * 敏感关键词列表
-
-   * 白名单用户
+   - 白名单用户
 
 ### 扩展性设计
 
@@ -84,4 +80,3 @@ extensions/mfa-auth/
 9. `extensions/mfa-auth/src/server.ts` - HTTP 服务器
 10. `extensions/mfa-auth/src/qr.ts` - 二维码生成
 11. `extensions/mfa-auth/README.md` - 说明文档
-

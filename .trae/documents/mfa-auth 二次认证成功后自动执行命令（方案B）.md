@@ -13,8 +13,11 @@
 **添加内容**:
 
 - 添加 `AuthStatus` 枚举：`pending` | `scanned` | `verified` | `failed` | `expired`
+
 - 扩展 `AuthSession` 接口：添加 `certToken`, `qrcodeContent`, `expireTimeMs`, `authStatus` 字段
+
 - 添加 Dabby API 响应类型定义
+
 - 添加 Dabby 配置接口
 
 ### 2. 更新配置文件
@@ -24,7 +27,9 @@
 **添加内容**:
 
 - 添加 Dabby API 配置对象（clientId, clientSecret, apiBaseUrl）
+
 - 添加轮询间隔配置（pollInterval: 2000）
+
 - 添加 accessToken 缓存配置（tokenCacheDuration）
 
 ### 3. 创建 Dabby API 客户端
@@ -34,10 +39,15 @@
 **功能**:
 
 - `DabbyClient` 类
+
 - `getAccessToken()`: 调用接口1，支持缓存（2小时）
+
 - `getQrCode()`: 调用接口2，返回 certToken 和 qrcodeContent
+
 - `getAuthResult()`: 调用接口3，查询认证结果
+
 - `refreshAccessToken()`: 自动刷新 token
+
 - 错误处理和重试逻辑
 
 ### 4. 改造认证管理器
@@ -47,8 +57,11 @@
 **改动**:
 
 - 修改 `generateSession()` 方法：接受额外的 certToken、qrcodeContent、expireTimeMs 参数
+
 - 添加 `updateAuthStatus()` 方法：更新认证状态
+
 - 添加 `getCertToken()` 方法：获取 certToken
+
 - 扩展 `cleanup()` 方法：清理 Dabby 认证资源
 
 ### 5. 重写二维码认证提供者
@@ -58,12 +71,18 @@
 **改动**:
 
 - `initialize()`: 调用 Dabby API 获取二维码，存储到 session
+
 - `verify()`: 调用 Dabby API 查询认证结果，返回状态
+
 - `generateAuthPage()`:
   - 使用 Dabby 返回的 qrcodeContent 生成二维码
+
   - 前端实现轮询机制（每 2 秒）
+
   - 显示认证状态（等待扫码 → 已扫码 → 认证成功）
+
   - 倒计时显示
+
 - `cleanup()`: 清理认证状态
 
 ### 6. 改造 HTTP 服务器
@@ -73,7 +92,9 @@
 **改动**:
 
 - 修改 `/mfa-auth/verify` 接口：返回认证状态和详细信息
+
 - 添加错误处理：处理 Dabby API 异常、token 过期等
+
 - 改进响应格式：返回 `status` 字段供前端判断
 
 ### 7. 更新插件入口
@@ -83,6 +104,7 @@
 **改动**:
 
 - 导入 `dabbyClient`
+
 - 可选：在插件启动时预获取 accessToken
 
 ### 8. 添加单元测试
@@ -92,8 +114,11 @@
 **测试内容**:
 
 - accessToken 获取和刷新
+
 - 二维码获取
+
 - 认证结果查询
+
 - 错误处理（网络异常、API 错误）
 
 ### 9. 更新文档
@@ -103,8 +128,11 @@
 **更新内容**:
 
 - 添加 Dabby 认证系统说明
+
 - 更新配置说明（clientId、clientSecret）
+
 - 更新 API 文档
+
 - 添加故障排除指南
 
 ## 技术细节
@@ -211,15 +239,21 @@ expired (二维码过期)
 ## 错误处理
 
 - **accessToken 过期**: 自动刷新并重试
+
 - **二维码过期**: 显示过期提示，支持刷新
+
 - **网络错误**: 显示错误提示，支持重试
+
 - **API 错误**: 解析 retCode 和 retMessage，友好提示
 
 ## 安全性
 
 - `clientSecret` 通过环境变量配置
+
 - accessToken 内存缓存，定期刷新
+
 - certToken 仅在会话生命周期内有效
+
 - 请求超时设置
 
 ## 文件清单
@@ -227,14 +261,21 @@ expired (二维码过期)
 **新建文件**:
 
 - `src/dabby-client.ts` - Dabby API 客户端
+
 - `src/dabby-client.test.ts` - 单元测试
 
 **修改文件**:
 
 - `src/types.ts` - 添加类型定义
+
 - `src/config.ts` - 添加 Dabby 配置
+
 - `src/auth-manager.ts` - 扩展会话管理
+
 - `src/providers/qr-code.ts` - 重写认证逻辑
+
 - `src/server.ts` - 改造验证接口
+
 - `index.ts` - 导入客户端
+
 - `README.md` - 更新文档

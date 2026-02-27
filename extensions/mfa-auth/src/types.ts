@@ -1,6 +1,6 @@
 export type AuthMethodType = "qr-code" | "image-captcha" | "sms" | "email";
 
-export type AuthStatus = "pending" | "verified" | "failed" | "expired";
+export type AuthStatus = "pending" | "scanned" | "verified" | "failed" | "expired";
 
 export interface AuthSession {
   sessionId: string;
@@ -25,6 +25,7 @@ export interface PendingAuthContext {
   toolName: string;
   toolParams: Record<string, unknown>;
   timestamp: number;
+  pendingExecutionId?: string;
 }
 
 export interface MfaConfig {

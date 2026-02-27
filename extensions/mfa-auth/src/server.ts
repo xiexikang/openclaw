@@ -1,14 +1,14 @@
 import http from "node:http";
-import type { AuthSession } from "./types.js";
 import { authManager } from "./auth-manager.js";
 import { config } from "./config.js";
+import { dabbyClient } from "./dabby-client.js";
 import { qrCodeAuthProvider } from "./providers/qr-code.js";
+import type { AuthSession } from "./types.js";
+import { renderQrPngBase64 } from "./qr.js";
 
 let notifyCallback: ((session: AuthSession) => void | Promise<void>) | null = null;
 
-export function setNotifyCallback(
-  callback: (session: AuthSession) => void | Promise<void>,
-): void {
+export function setNotifyCallback(callback: (session: AuthSession) => void | Promise<void>): void {
   console.log("[mfa-auth] setNotifyCallback called");
   notifyCallback = callback;
 }
@@ -35,7 +35,6 @@ export function startHttpServer(): void {
           req.on("end", async () => {
             try {
               const { sessionId } = JSON.parse(body);
-
               const session = authManager.getSession(sessionId);
               if (!session) {
                 res.writeHead(404, { "Content-Type": "application/json" });
@@ -45,8 +44,11 @@ export function startHttpServer(): void {
 
               const result = await authManager.verifySession(sessionId);
 
-              if (result.success && notifyCallback) {
-                await notifyCallback(session);
+              if (result.success) {
+                authManager.markUserVerified(session.userId);
+                if (notifyCallback) {
+                  await notifyCallback(session);
+                }
               }
 
               res.writeHead(200, { "Content-Type": "application/json" });
@@ -60,6 +62,55 @@ export function startHttpServer(): void {
         }
       }
 
+      if (url.pathname === "/mfa-auth/refresh") {
+        if (req.method === "POST") {
+          let body = "";
+          req.on("data", (chunk) => {
+            body += chunk.toString();
+          });
+          req.on("end", async () => {
+            try {
+              const { sessionId } = JSON.parse(body);
+              const session = authManager.getSession(sessionId);
+              if (!session) {
+                res.writeHead(404, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ success: false, error: "Session not found" }));
+                return;
+              }
+
+              const tokenInfo = await dabbyClient.getQrCode();
+              session.certToken = tokenInfo.certToken;
+              session.qrcodeContent = tokenInfo.qrcodeContent;
+              session.expireTimeMs = tokenInfo.expireTimeMs;
+
+              authManager.updateAuthStatus(sessionId, "pending");
+              console.log(`[mfa-auth] QR code refreshed for session ${session.sessionId}`);
+
+              const qrcodeBase64 = await renderQrPngBase64(session.qrcodeContent);
+              
+              // 计算剩余时间
+              const remainingTime = Math.max(
+                0,
+                Math.ceil((config.timeout - (Date.now() - session.timestamp)) / 1000),
+              );
+
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ 
+                success: true, 
+                qrcodeBase64,
+                expireTimeMs: session.expireTimeMs,
+                remainingTime
+              }));
+            } catch (error) {
+              console.error(`[mfa-auth] Failed to refresh QR code: ${error}`);
+              res.writeHead(500, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ success: false, error: String(error) }));
+            }
+          });
+          return;
+        }
+      }
+
       const sessionId = url.pathname.split("/")[2];
       if (req.method === "GET" && sessionId) {
         const session = authManager.getSession(sessionId);
@@ -67,7 +118,9 @@ export function startHttpServer(): void {
         if (config.debug) {
           console.log(`[mfa-auth] GET request for sessionId: ${sessionId}`);
           console.log(`[mfa-auth] Session found: ${!!session}`);
-          console.log(`[mfa-auth] All sessions: ${Array.from(authManager.getSessionIds()).join(", ")}`);
+          console.log(
+            `[mfa-auth] All sessions: ${Array.from(authManager.getSessionIds()).join(", ")}`,
+          );
         }
 
         if (!session) {
@@ -89,8 +142,8 @@ export function startHttpServer(): void {
 </head>
 <body>
   <div class="container">
-    <h1>❌ 验证码不存在或已过期</h1>
-    <p>请重新执行敏感操作以获取新的验证码</p>
+    <h1>❌ 验证二维码不存在或已过期</h1>
+    <p>请重新执行敏感操作以获取新的验证二维码</p>
   </div>
 </body>
 </html>

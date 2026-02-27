@@ -1,17 +1,13 @@
 import crypto from "node:crypto";
-import type {
-  AuthSession,
-  AuthMethodProvider,
-  AuthResult,
-  PendingAuthContext,
-} from "./types.js";
 import { config } from "./config.js";
+import type { AuthSession, AuthMethodProvider, AuthResult, PendingAuthContext } from "./types.js";
 
 export class AuthManager {
   private sessions = new Map<string, AuthSession>();
-  private verifiedUsers = new Map<string, number>();
+  public verifiedUsers = new Map<string, number>();
   private providers = new Map<string, AuthMethodProvider>();
   private config = config;
+  private pendingExecutions = new Map<string, { sessionId: string; timestamp: number }>();
 
   constructor() {
     setInterval(() => this.cleanup(), 30000);
@@ -84,6 +80,7 @@ export class AuthManager {
 
       if (this.config.debug) {
         console.log(`[mfa-auth] Session verified and deleted: ${sessionId}`);
+        console.log(`[mfa-auth] User ${session.userId} marked as verified`);
       }
     }
 
@@ -110,7 +107,10 @@ export class AuthManager {
     return Array.from(this.sessions.keys());
   }
 
-  updateAuthStatus(sessionId: string, status: "pending" | "scanned" | "verified" | "failed" | "expired"): void {
+  updateAuthStatus(
+    sessionId: string,
+    status: "pending" | "scanned" | "verified" | "failed" | "expired",
+  ): void {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.authStatus = status;
@@ -147,8 +147,50 @@ export class AuthManager {
       }
     }
 
+    for (const [userId, pending] of this.pendingExecutions.entries()) {
+      if (now - pending.timestamp > 10 * 60 * 1000) {
+        this.pendingExecutions.delete(userId);
+        cleanedCount++;
+      }
+    }
+
     if (this.config.debug && cleanedCount > 0) {
       console.log(`[mfa-auth] Cleanup: removed ${cleanedCount} expired entries`);
+    }
+  }
+
+  registerPendingExecution(userId: string, sessionId: string): void {
+    this.pendingExecutions.set(userId, { sessionId, timestamp: Date.now() });
+    if (this.config.debug) {
+      console.log(`[mfa-auth] Registered pending execution for user ${userId}: ${sessionId}`);
+    }
+  }
+
+  getAndClearPendingExecution(userId: string): string | null {
+    const pending = this.pendingExecutions.get(userId);
+    if (pending) {
+      this.pendingExecutions.delete(userId);
+      if (this.config.debug) {
+        console.log(
+          `[mfa-auth] Cleared pending execution for user ${userId}: ${pending.sessionId}`,
+        );
+      }
+      return pending.sessionId;
+    }
+    return null;
+  }
+
+  hasPendingExecution(userId: string): boolean {
+    const pending = this.pendingExecutions.get(userId);
+    if (!pending) return false;
+    const now = Date.now();
+    return now - pending.timestamp < 10 * 60 * 1000;
+  }
+
+  markUserVerified(userId: string): void {
+    this.verifiedUsers.set(userId, Date.now());
+    if (this.config.debug) {
+      console.log(`[mfa-auth] Marked user ${userId} as verified`);
     }
   }
 }

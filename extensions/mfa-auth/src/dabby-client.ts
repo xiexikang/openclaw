@@ -1,10 +1,10 @@
+import { dabbyConfig } from "./config.js";
 import type {
   DabbyConfig,
   DabbyAccessTokenResponse,
   DabbyQrCodeResponse,
   DabbyAuthResultResponse,
 } from "./types.js";
-import { dabbyConfig } from "./config.js";
 
 const resolveFetch = (): typeof fetch => {
   const resolved = globalThis.fetch;
@@ -35,33 +35,48 @@ export class DabbyClient {
       clientSecret: this.config.clientSecret,
     });
     const fetch = resolveFetch();
+    const fullUrl = `${url}?${params.toString()}`;
+    console.log(`[mfa-auth] Fetching accessToken from: ${fullUrl}`);
 
-    try {
-      const response = await fetch(`${url}?${params.toString()}`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
+    let lastError: any;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const response = await fetch(fullUrl, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "OpenClaw/1.0 (mfa-auth)",
+          },
+        });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data: DabbyAccessTokenResponse = await response.json();
+
+        if (data.retCode !== 0) {
+          throw new Error(`Dabby API error: ${data.retMessage}`);
+        }
+
+        this.cachedAccessToken = data.accessToken;
+        this.tokenExpiryTime = Date.now() + data.expireSeconds * 1000;
+
+        console.log(`[mfa-auth] Dabby accessToken refreshed, expires in ${data.expireSeconds}s`);
+
+        return this.cachedAccessToken;
+      } catch (error: any) {
+        console.error(`[mfa-auth] Attempt ${i + 1} failed to get accessToken: ${error.message}`);
+        if (error.cause) {
+          console.error(`[mfa-auth] Failure cause:`, error.cause);
+        }
+        lastError = error;
+        await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1s before retry
       }
-
-      const data: DabbyAccessTokenResponse = await response.json();
-
-      if (data.retCode !== 0) {
-        throw new Error(`Dabby API error: ${data.retMessage}`);
-      }
-
-      this.cachedAccessToken = data.accessToken;
-      this.tokenExpiryTime = Date.now() + data.expireSeconds * 1000;
-
-      console.log(`[mfa-auth] Dabby accessToken refreshed, expires in ${data.expireSeconds}s`);
-
-      return this.cachedAccessToken;
-    } catch (error) {
-      console.error(`[mfa-auth] Failed to get accessToken: ${error}`);
-      throw error;
     }
+
+    console.error(`[mfa-auth] Failed to get accessToken after 3 attempts`);
+    throw lastError;
   }
 
   async refreshAccessToken(): Promise<string> {
@@ -75,7 +90,10 @@ export class DabbyClient {
     const url = `${this.config.apiBaseUrl}/authreq`;
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "OpenClaw/1.0 (mfa-auth)",
+      },
       body: JSON.stringify({
         accessToken,
         authType: "ScanAuth",
@@ -98,14 +116,21 @@ export class DabbyClient {
     return data.tokenInfo;
   }
 
-  async getAuthResult(certToken: string): Promise<{ status: "pending" | "verified" | "failed" | "expired"; error?: string; authObject?: { idNum: string; fullName: string } }> {
+  async getAuthResult(certToken: string): Promise<{
+    status: "pending" | "verified" | "failed" | "expired";
+    error?: string;
+    authObject?: { idNum: string; fullName: string };
+  }> {
     const accessToken = await this.getAccessToken();
     const fetch = resolveFetch();
 
     const url = `${this.config.apiBaseUrl}/authhist`;
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "OpenClaw/1.0 (mfa-auth)",
+      },
       body: JSON.stringify({
         accessToken,
         authHistQry: { certToken },

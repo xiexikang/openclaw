@@ -1,9 +1,9 @@
-import type { AuthSession, AuthResult } from "../types.js";
-import { BaseAuthProvider } from "./base.js";
-import { renderQrPngBase64 } from "../qr.js";
+import { authManager } from "../auth-manager.js";
 import { config } from "../config.js";
 import { dabbyClient } from "../dabby-client.js";
-import { authManager } from "../auth-manager.js";
+import { renderQrPngBase64 } from "../qr.js";
+import type { AuthSession, AuthResult } from "../types.js";
+import { BaseAuthProvider } from "./base.js";
 
 export class QrCodeAuthProvider extends BaseAuthProvider {
   readonly methodType = "qr-code" as const;
@@ -72,9 +72,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
         ? session.originalContext.commandBody.substring(0, 100) + "..."
         : session.originalContext.commandBody;
 
-    const qrCode = session.qrcodeContent
-      ? await renderQrPngBase64(session.qrcodeContent)
-      : "";
+    const qrCode = session.qrcodeContent ? await renderQrPngBase64(session.qrcodeContent) : "";
 
     return this.renderHtml(session.sessionId, commandPreview, qrCode, remainingTime);
   }
@@ -187,6 +185,33 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       border-radius: 4px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
+    .qr-actions {
+      margin-top: 15px;
+    }
+    .refresh-btn {
+      background: white;
+      border: 1px solid #dcdfe6;
+      color: #606266;
+      padding: 8px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .refresh-btn:hover {
+      color: #409eff;
+      border-color: #c6e2ff;
+      background-color: #ecf5ff;
+    }
+    .refresh-btn:disabled {
+      color: #c0c4cc;
+      cursor: not-allowed;
+      border-color: #ebeef5;
+      background-color: #fff;
+    }
     .qr-link {
       font-size: 12px;
       color: #718096;
@@ -261,7 +286,12 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
     <div class="qr-section">
       <h3>📱 请打开【数字身份助手APP】扫码</h3>
       <div class="qr-image">
-        ${qrCode ? `<img src="data:image/png;base64,${qrCode}" alt="认证二维码" width="200" height="200">` : '<p class="loading"></p><p>正在生成二维码...</p>'}
+        ${qrCode ? `<img id="qr-img" src="data:image/png;base64,${qrCode}" alt="认证二维码" width="200" height="200">` : '<p class="loading"></p><p>正在生成二维码...</p>'}
+      </div>
+      <div class="qr-actions">
+        <button id="refresh-btn" class="refresh-btn" onclick="refreshQrCode()">
+          <span class="refresh-icon">🔄</span> 刷新二维码
+        </button>
       </div>
     </div>
     <div class="timer">⏱️ 有效期: <span id="timer">${Math.floor(remainingTime / 60)}:${String(remainingTime % 60).padStart(2, "0")}</span></div>
@@ -296,6 +326,9 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       const containerEl = document.querySelector('.container');
       const operationEl = document.querySelector('.info strong');
       const statusEl = document.getElementById('status');
+      const refreshBtn = document.getElementById('refresh-btn');
+
+      if (refreshBtn) refreshBtn.style.display = 'none';
 
       const operationName = operationEl ? operationEl.textContent.trim() : '';
       const operationNameTag = operationName ? '【' + escapeHtml(operationName) + '】' : '';
@@ -329,10 +362,75 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       result.classList.remove('success');
       isPolling = false;
       clearInterval(pollInterval);
+      
+      // Keep QR section visible but disable refresh if expired?
+      // No, error means we stopped. But refresh should be available if it was just an API error.
+      // If it's expired, we show expired state.
     }
 
     function showExpired() {
-      showError('二维码已过期，请重新获取');
+      const result = document.getElementById('result');
+      result.innerHTML = '⚠️ 二维码已过期<br><button onclick="refreshQrCode()" class="refresh-btn" style="margin-top:10px">🔄 点击刷新</button>';
+      result.style.display = 'block';
+      result.classList.add('error');
+      result.classList.remove('success');
+      
+      const timerEl = document.getElementById('timer');
+      if(timerEl) timerEl.textContent = "0:00";
+    }
+
+    async function refreshQrCode() {
+        const btn = document.getElementById('refresh-btn');
+        const img = document.getElementById('qr-img');
+        const result = document.getElementById('result');
+        const statusEl = document.getElementById('status');
+        
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading" style="width:14px;height:14px;border-width:2px;margin-right:5px"></span> 刷新中...';
+        }
+
+        try {
+            const response = await fetch('/mfa-auth/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                if (img) img.src = 'data:image/png;base64,' + data.qrcodeBase64;
+                
+                timeLeft = data.remainingTime;
+                isPolling = true;
+                
+                // Hide error/result
+                result.style.display = 'none';
+                if (statusEl) statusEl.style.display = 'none';
+                
+                // Reset timer interval if needed
+                // It runs every 1s, so just updating timeLeft is enough
+                
+                // Restart polling if stopped
+                clearInterval(pollInterval);
+                pollInterval = setInterval(pollAuthStatus, 2000);
+                
+                // Reset button
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="refresh-icon">🔄</span> 刷新二维码';
+                }
+            } else {
+                throw new Error(data.error || '刷新失败');
+            }
+        } catch (error) {
+            alert('刷新失败: ' + error.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="refresh-icon">🔄</span> 重试刷新';
+            }
+        }
     }
 
     function escapeHtml(text) {

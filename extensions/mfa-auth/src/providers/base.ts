@@ -1,9 +1,4 @@
-import type {
-  AuthMethodProvider,
-  AuthMethodType,
-  AuthResult,
-  AuthSession,
-} from "../types.js";
+import type { AuthMethodProvider, AuthMethodType, AuthResult, AuthSession } from "../types.js";
 
 export abstract class BaseAuthProvider implements AuthMethodProvider {
   abstract readonly methodType: AuthMethodType;

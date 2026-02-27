@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DabbyClient } from "./dabby-client.js";
 import { dabbyConfig } from "./config.js";
+import { DabbyClient } from "./dabby-client.js";
 
 describe("DabbyClient", () => {
   let client: DabbyClient;

@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import http from "node:http";
-import type { CaptchaSession } from "./types.js";
 import { captchaManager } from "./captcha-manager.js";
 import { config } from "./config.js";
 import { renderQrPngBase64 } from "./qr.js";
+import type { CaptchaSession } from "./types.js";
 
 let notifyCallback: ((session: CaptchaSession) => void | Promise<void>) | null = null;
 
@@ -24,7 +24,10 @@ function escapeHtml(text: string): string {
 }
 
 export function startHttpServer() {
-  console.log("[image-captcha-auth] startHttpServer called, attempting to start server on port", config.port);
+  console.log(
+    "[image-captcha-auth] startHttpServer called, attempting to start server on port",
+    config.port,
+  );
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
 
@@ -90,25 +93,27 @@ export function startHttpServer() {
       }
 
       if (req.method === "GET") {
-      const session = captchaManager.getSession(sessionId);
+        const session = captchaManager.getSession(sessionId);
 
-      if (config.debug) {
-        console.log(`[captcha] GET request for sessionId: ${sessionId}`);
-        console.log(`[captcha] Session found: ${!!session}`);
-        console.log(`[captcha] All sessions: ${Array.from(captchaManager.getSessionIds()).join(', ')}`);
-      }
-
-      if (!session) {
         if (config.debug) {
-          console.log(`[captcha] Session not found or expired: ${sessionId}`);
+          console.log(`[captcha] GET request for sessionId: ${sessionId}`);
+          console.log(`[captcha] Session found: ${!!session}`);
+          console.log(
+            `[captcha] All sessions: ${Array.from(captchaManager.getSessionIds()).join(", ")}`,
+          );
         }
-        res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+
+        if (!session) {
+          if (config.debug) {
+            console.log(`[captcha] Session not found or expired: ${sessionId}`);
+          }
+          res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
           res.end(`
             <!DOCTYPE html>
             <html>
             <head>
               <meta charset="utf-8">
-              <title>验证码不存在</title>
+              <title>验证二维码不存在</title>
               <style>
                 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f5f5f5; }
                 .container { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
