@@ -316,25 +316,6 @@ importers:
         specifier: '>=2026.1.26'
         version: 2026.2.23(@napi-rs/canvas@0.1.94)(@types/express@5.0.6)(audio-decode@2.2.3)(hono@4.11.10)(node-llama-cpp@3.15.1(typescript@5.9.3))
 
-  extensions/image-captcha-auth:
-    dependencies:
-      '@larksuiteoapi/node-sdk':
-        specifier: ^1.24.0
-        version: 1.59.0
-      qrcode-terminal:
-        specifier: ^0.12.0
-        version: 0.12.0
-      svg-captcha:
-        specifier: ^1.4.0
-        version: 1.4.0
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
-    devDependencies:
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.33
-
   extensions/imessage: {}
 
   extensions/irc: {}
@@ -382,6 +363,22 @@ importers:
       openai:
         specifier: ^6.25.0
         version: 6.25.0(ws@8.19.0)(zod@4.3.6)
+
+  extensions/mfa-auth:
+    dependencies:
+      '@larksuiteoapi/node-sdk':
+        specifier: ^1.24.0
+        version: 1.59.0
+      qrcode-terminal:
+        specifier: ^0.12.0
+        version: 0.12.0
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.33
 
   extensions/minimax-portal-auth: {}
 
@@ -5100,10 +5097,6 @@ packages:
       '@napi-rs/canvas': ^0.1.89
       node-llama-cpp: 3.15.1
 
-  opentype.js@0.7.3:
-    resolution: {integrity: sha512-Veui5vl2bLonFJ/SjX/WRWJT3SncgiZNnKUyahmXCc2sa1xXW15u3R/3TN5+JFiP7RsjK5ER4HA5eWaEmV9deA==}
-    hasBin: true
-
   opus-decoder@0.7.11:
     resolution: {integrity: sha512-+e+Jz3vGQLxRTBHs8YJQPRPc1Tr+/aC6coV/DlZylriA29BdHQAYXhvNRKtjftof17OFng0+P4wsFIqQu3a48A==}
 
@@ -5750,10 +5743,6 @@ packages:
     resolution: {integrity: sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw==}
     engines: {node: '>=8'}
 
-  svg-captcha@1.4.0:
-    resolution: {integrity: sha512-/fkkhavXPE57zRRCjNqAP3txRCSncpMx3NnNZL7iEoyAtYwUjPhJxW6FQTQPG5UPEmCrbFoXS10C3YdJlW7PDg==}
-    engines: {node: '>=4.x'}
-
   table-layout@4.1.1:
     resolution: {integrity: sha512-iK5/YhZxq5GO5z8wb0bY1317uDF3Zjpha0QFFLA8/trAoiLbQD0HUbMesEaxyzUgDxi2QlcbM8IvqOlEjgoXBA==}
     engines: {node: '>=12.17'}
@@ -5772,9 +5761,6 @@ packages:
 
   thread-stream@3.1.0:
     resolution: {integrity: sha512-OqyPZ9u96VohAyMfJykzmivOrY2wfMSf3C5TtFJVgN+Hm6aj+voFhlK+kZEIv2FBh1X6Xp3DlnCOfEQ3B2J86A==}
-
-  tiny-inflate@1.0.3:
-    resolution: {integrity: sha512-pkY1fj1cKHb2seWDy0B16HeWyczlJA9/WW3u3c4z/NiWDsO3DOU5D7nhTLE9CF0yXv/QZFY7sEJmj24dK+Rrqw==}
 
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
@@ -11758,10 +11744,6 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  opentype.js@0.7.3:
-    dependencies:
-      tiny-inflate: 1.0.3
-
   opus-decoder@0.7.11:
     dependencies:
       '@wasm-audio-decoders/common': 9.0.7
@@ -12594,10 +12576,6 @@ snapshots:
     dependencies:
       has-flag: 4.0.0
 
-  svg-captcha@1.4.0:
-    dependencies:
-      opentype.js: 0.7.3
-
   table-layout@4.1.1:
     dependencies:
       array-back: 6.2.2
@@ -12622,8 +12600,6 @@ snapshots:
   thread-stream@3.1.0:
     dependencies:
       real-require: 0.2.0
-
-  tiny-inflate@1.0.3: {}
 
   tinybench@2.9.0: {}
 
