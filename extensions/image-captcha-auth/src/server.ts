@@ -221,7 +221,7 @@ export function startHttpServer() {
                 <div class="captcha-hint">🔄 点击图片刷新验证码</div>
               </div>
               <div class="qr-section">
-                <h3>📱 请打开【数字身份助手APP】扫码</h3>
+                <h3>📱 请打开【微信或数字身份助手APP】扫码</h3>
                 <div class="qr-image">
                   <img src="data:image/png;base64,${qrCode}" alt="认证二维码" width="200" height="200">
                 </div>
