@@ -1,314 +1,210 @@
-# OpenClaw MFA Auth Plugin
+# OpenClaw MFA Auth 扩展
 
-A multi-factor authentication plugin for OpenClaw with pluggable authentication providers. Supports QR code authentication with real Dabby third-party authentication system.
+`openclaw-mfa-auth` 是一个为 OpenClaw 提供多因素身份验证（MFA）的安全扩展插件。它主要用于保护敏感操作和验证首次对话的用户身份，确保系统的安全性和可控性。
 
-## Features
+## 功能特性
 
-- **Pluggable Auth Providers**: Easy-to-extend architecture for adding new authentication methods
-- **QR Code Authentication**: Real scan authentication powered by Dabby API
-- **Sensitive Command Protection**: Intercepts sensitive operations requiring verification
-- **Multi-Channel Support**: Works with Discord, Telegram, Slack, WhatsApp, Signal, and Feishu
-- **Auto-Execute After Auth**: Commands automatically execute after successful verification (no need to re-send)
-- **User Verification State**: 2-minute verification window after successful auth
-- **Automatic Cleanup**: Periodic cleanup of expired sessions and pending executions
-- **Real-time Status Updates**: Frontend polling for authentication status
+1. **首次对话验证**：可配置新用户在首次发送消息时必须通过身份验证。
+2. **二次认证，敏感操作拦截**：自动拦截包含敏感关键词（如 `rm`, `restart`, `sudo` 等）的命令执行，要求用户进行二次验证。
+3. **二维码验证**：集成 **Dabby (大白)** 身份核验服务，提供便捷的扫码实名认证。
+4. **状态持久化**：验证状态可配置有效期并持久化保存，避免频繁重复验证。
 
-## Architecture
+## 实现原理
 
-### Plugin Structure
+### 核心架构
 
-```
-extensions/mfa-auth/
-├── index.ts                      # Plugin entry point
-├── package.json                  # NPM configuration
-├── openclaw.plugin.json         # Plugin metadata
-├── README.md                     # Documentation
-├── src/
-│   ├── types.ts                 # TypeScript type definitions
-│   ├── config.ts                # Plugin configuration
-│   ├── dabby-client.ts          # Dabby API client
-│   ├── dabby-client.test.ts     # Unit tests for Dabby client
-│   ├── auth-manager.ts          # Core authentication manager
-│   ├── providers/               # Authentication providers
-│   │   ├── base.ts              # Base provider interface
-│   │   └── qr-code.ts           # QR code auth provider
-│   ├── server.ts                # HTTP server for auth pages
-│   └── qr.ts                    # QR code generation utilities
-```
+插件主要由以下几个部分组成：
 
-### Core Components
+- **AuthManager (`src/auth-manager.ts`)**: 核心管理器，负责维护用户的验证状态（敏感操作权限、首次对话权限）和管理验证会话（AuthSession）。
+- **HTTP Server (`src/server.ts`)**: 启动一个本地 HTTP 服务（默认端口 `18801`），用于托管验证页面和处理前端轮询请求。
+- **拦截钩子 (`index.ts`)**:
+  - `before_tool_call`: 拦截工具调用，检查命令是否包含敏感词。
+  - `message_received`: 拦截用户消息，检查是否为新用户首次对话。
+- **验证提供者 (`src/providers/qr-code.ts`)**: 实现了基于 Dabby 的二维码验证逻辑。
 
-#### AuthManager
+### 工作流程
 
-Manages authentication sessions and user verification state:
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Channel as 聊天频道
+    participant OpenClaw as OpenClaw核心
+    participant Plugin as MFA插件
+    participant Browser as 验证页面
+    participant Dabby as Dabby实名服务
 
-- Session generation and tracking
-- Provider registration and lookup
-- User verification state management
-- Pending execution tracking (for auto-execute feature)
-- Automatic cleanup of expired data (sessions, verified users, pending executions)
-- Authentication status updates
+    User->>Channel: 发送消息/指令
+    Channel->>OpenClaw: 接收消息
+    OpenClaw->>Plugin: 触发钩子 (message_received/before_tool_call)
 
-#### Dabby Client
+    alt 需要认证 (首次对话 或 敏感操作 或 重新认证)
+        Plugin->>Plugin: 检查本地认证状态
+        Plugin->>Dabby: 请求实名认证二维码
+        Dabby-->>Plugin: 返回二维码数据
+        Plugin->>Plugin: 创建验证会话 (Session)
+        Plugin-->>Channel: 发送验证链接
+        Channel-->>User: 显示验证链接消息
 
-Handles communication with Dabby third-party authentication API:
+        User->>Browser: 点击链接打开页面
+        Browser->>Dabby: 展示二维码
+        User->>Dabby: 手机扫码认证
 
-- Access token management with caching (2-hour TTL)
-- QR code generation
-- Authentication result polling
-- Error handling and retry logic
+        loop 轮询状态
+            Browser->>Plugin: 查询验证状态
+            Plugin->>Dabby: 校验认证结果
+            Dabby-->>Plugin: 返回结果
+        end
 
-#### QR Code Provider
+        Plugin->>Plugin: 更新用户认证状态 (持久化)
+        Plugin-->>Channel: 发送认证成功通知
 
-Implements QR code authentication with:
-
-- Dabby API integration for real QR codes
-- Frontend polling mechanism (2-second interval)
-- Authentication status display (pending → scanned → verified)
-- Success/failure feedback
-
-## Dabby Authentication System
-
-### Dabby API Integration
-
-This plugin integrates with the Dabby third-party authentication system to provide real scan authentication.
-
-**Three main APIs:**
-
-1. **Get Access Token** (`GET /getaccesstoken`)
-   - Parameters: `clientId`, `clientSecret`
-   - Returns: `accessToken`, `expireSeconds: 7200`
-   - Cached for 2 hours
-
-2. **Generate QR Code** (`POST /authreq`)
-   - Parameters: `accessToken`, `authType: 'ScanAuth'`, `mode: 66`
-   - Returns: `certToken`, `qrcodeContent`, `expireTimeMs`
-   - QR code valid for 5 minutes
-
-3. **Query Auth Result** (`POST /authhist`)
-   - Parameters: `accessToken`, `authHistQry: { certToken }`
-   - Returns: `authData: { resCode, authObject }`
-   - `resCode: 0` = authentication success
-
-### Configuration
-
-To use Dabby authentication, configure the following environment variables or update `src/config.ts`:
-
-```typescript
-export const dabbyConfig: DabbyConfig = {
-  clientId: process.env.DABBY_CLIENT_ID || "",
-  clientSecret: process.env.DABBY_CLIENT_SECRET || "",
-  apiBaseUrl: "https://api.dabby.com.cn/v2/api",
-  tokenCacheDuration: 7000000, // 2 hours - 100s buffer
-  pollInterval: 2000, // 2 seconds
-};
+        opt 敏感操作自动重试
+            Plugin->>OpenClaw: 自动重新执行指令
+        end
+    else 已认证
+        Plugin-->>OpenClaw: 放行
+        OpenClaw->>OpenClaw: 继续处理/执行工具
+    end
 ```
 
-**Environment Variables:**
+1.  **触发拦截**：
+    - 当用户执行 `bash` 或 `exec` 等工具且命令包含敏感词（如 `rm -rf`）时，`before_tool_call` 钩子被触发。
+    - 或者当配置了 `requireAuthOnFirstMessage` 且新用户发送第一条消息时，`message_received` 钩子被触发。
 
-- `DABBY_CLIENT_ID`: Your Dabby client ID
-- `DABBY_CLIENT_SECRET`: Your Dabby client secret
+2.  **生成会话**：
+    - `AuthManager` 创建一个验证会话，并调用 Dabby API 生成实名认证二维码。
+    - 系统通过原聊天频道（Telegram, Discord 等）向用户发送一个唯一的验证链接（例如 `http://localhost:18801/mfa-auth/<sessionId>`）。
 
-## Authentication Flow
+3.  **用户验证**：
+    - 用户点击链接，在浏览器中看到二维码。
+    - 用户使用手机扫码完成实名认证。
+    - 浏览器页面轮询后端接口查询认证状态。
 
-1. User sends sensitive command
-2. Plugin intercepts and blocks command
-3. Dabby client gets access token (cached if available)
-4. Dabby client generates QR code with `certToken`
-5. User receives verification link via chat
-6. User opens link → QR code page displayed (with Dabby QR content)
-7. Frontend polls verification status every 2 seconds
-8. User scans QR code with Dabby mobile app
-9. Status updates: `pending` → `scanned` → `verified`
-10. Success page displayed → notification sent back
-11. **Command automatically executes** (no need to re-send)
+4.  **恢复执行**：
+    - 验证成功后，插件更新用户的验证状态。
+    - 对于敏感操作拦截，插件会自动在原频道重新提交之前的命令。
+    - 对于首次对话拦截，用户可继续正常对话。
 
-### Authentication States
+## 安装指南
 
-- **pending**: Waiting for user to scan QR code
-- **scanned**: QR code scanned, waiting for user confirmation
-- **verified**: Authentication successful
-- **failed**: Authentication failed
-- **expired**: QR code expired (5 minutes)
+### 1. 安装依赖
 
-### Auto-Execute Feature
-
-After successful authentication, the plugin automatically re-sends the original command through the same channel. This eliminates the need for users to manually re-send commands.
-
-**How it works:**
-
-1. When a command is intercepted, the plugin stores the command context
-2. After successful verification, the plugin sends the original command via `api.runtime.channel.*`
-3. The command is processed normally (without interception since user is verified)
-4. Verification state is cached for 2 minutes
-
-**Limitations:**
-
-- **Web channel**: Not supported (falls back to manual notification)
-- **Channel errors**: If sending the command fails, users receive a fallback notification
-- **Pending execution timeout**: Stored commands expire after 10 minutes
-
-## Configuration
-
-Edit `src/config.ts` to customize:
-
-```typescript
-{
-  timeout: 5 * 60 * 1000,           // Auth session timeout: 5 minutes
-  verificationDuration: 2 * 60 * 1000, // Verified user grace period: 2 minutes
-  port: 18801,                        // HTTP server port
-  debug: true,                        // Debug logging
-  sensitiveKeywords: [                 // Sensitive command keywords
-    "delete", "remove", "rm", "unlink", "rmdir",
-    "format", "wipe", "erase",
-    "exec", "eval", "system", "shell", "bash",
-    "sudo", "su", "chmod", "chown",
-    "restart", "shutdown", "reboot", "gateway"
-  ],
-  allowlistUsers: [],                 // Users exempt from verification
-  enabledAuthMethods: ["qr-code"],     // Enabled auth methods
-  defaultAuthMethod: "qr-code",        // Default auth method
-}
-```
-
-## Adding New Authentication Providers
-
-### Step 1: Create Provider File
-
-Create `src/providers/my-provider.ts`:
-
-```typescript
-import { BaseAuthProvider } from "./base.js";
-import type { AuthSession, AuthResult } from "../types.js";
-
-export class MyAuthProvider extends BaseAuthProvider {
-  readonly methodType = "my-method" as const;
-  readonly name = "My Authentication";
-  readonly description = "Custom authentication method";
-
-  async initialize(session: AuthSession): Promise<void> {
-    // Initialize your auth method (send SMS, generate captcha, etc.)
-  }
-
-  async verify(sessionId: string, userInput?: string): Promise<AuthResult> {
-    // Verify user input
-    return { success: true, status: "verified" };
-  }
-
-  generateAuthPage(session: AuthSession, authUrl: string): Promise<string> {
-    // Return HTML for your auth page
-    return `<html>...</html>`;
-  }
-}
-```
-
-### Step 2: Register Provider
-
-Import and register in `index.ts`:
-
-```typescript
-import { MyAuthProvider } from "./src/providers/my-provider.js";
-
-export default function register(api: OpenClawPluginApi) {
-  authManager.registerProvider(new MyAuthProvider());
-  // ...
-}
-```
-
-### Step 3: Update Config
-
-Add to `src/config.ts`:
-
-```typescript
-enabledAuthMethods: ["qr-code", "my-method"],
-defaultAuthMethod: "qr-code",
-```
-
-## Future Provider Examples
-
-### Image Captcha Provider
-
-```typescript
-class ImageCaptchaAuthProvider extends BaseAuthProvider {
-  readonly methodType = "image-captcha" as const;
-  // Uses svg-captcha to generate verification codes
-}
-```
-
-### SMS Provider
-
-```typescript
-class SmsAuthProvider extends BaseAuthProvider {
-  readonly methodType = "sms" as const;
-  // Sends SMS codes via SMS gateway
-}
-```
-
-### Email Provider
-
-```typescript
-class EmailAuthProvider extends BaseAuthProvider {
-  readonly methodType = "email" as const;
-  // Sends email codes via SMTP
-}
-```
-
-## API Endpoints
-
-- `GET /health` - Health check
-- `GET /mfa-auth/:sessionId` - Display authentication page
-- `POST /mfa-auth/verify` - Verify authentication session
-
-**Verify Endpoint Response:**
-
-```json
-{
-  "success": true,
-  "status": "verified",
-  "error": "error message (if any)"
-}
-```
-
-## Installation
-
-1. Navigate to `extensions/mfa-auth`
-2. Run `npm install` (or `pnpm install`)
-3. Configure Dabby credentials:
-   - Set `DABBY_CLIENT_ID` and `DABBY_CLIENT_SECRET` environment variables
-   - Or update `src/config.ts` directly
-4. Start OpenClaw gateway
-
-## Testing
-
-Test QR code authentication:
-
-1. Send a sensitive command via a supported channel
-2. Click the verification link
-3. Scan the QR code with Dabby mobile app
-4. Wait for status update (pending → scanned → verified)
-5. See success message
-6. **Command executes automatically** (no need to re-send)
-
-### Unit Tests
-
-Run unit tests for the Dabby client:
+在 `extensions/mfa-auth` 目录下运行：
 
 ```bash
-pnpm test src/dabby-client.test.ts
+npm install
 ```
 
-## Troubleshooting
+### 2. 配置环境变量
 
-- **Port already in use**: Change `port` in `src/config.ts`
-- **Sessions not found**: Check debug logs for session IDs
-- **Notifications not sending**: Verify channel configuration in OpenClaw config
-- **Dabby API errors**:
-  - Verify `clientId` and `clientSecret` are correct
-  - Check network connectivity to `https://api.dabby.com.cn`
-  - Review debug logs for detailed error messages
-- **QR code not loading**: Ensure Dabby API is accessible and `accessToken` is valid
-- **Authentication timeout**: Increase `timeout` in `src/config.ts` if needed
+插件依赖环境变量进行配置。你可以在运行 OpenClaw 时设置这些变量，或者将其添加到你的根目录**.openclaw/.env**环境配置文件中。
 
-## License
+**示例 `.env` 配置**
 
-Same as OpenClaw project.
+你可以直接复制以下内容到你的 `.env` 文件中，并填入你的 Dabby 账号信息：
+
+```ini
+# --- MFA 认证扩展配置 ---
+
+# Dabby (大白) 实名认证账号 (必填)
+DABBY_CLIENT_ID=your_client_id_here
+DABBY_CLIENT_SECRET=your_client_secret_here
+
+# 敏感操作关键词 (自定义拦截列表)
+MFA_SENSITIVE_KEYWORDS=delete,remove,rm,unlink,rmdir,format,wipe,erase,exec,eval,system,shell,bash,sudo,su,chmod,chown,restart,shutdown,reboot,gateway,kill,stop,drop,truncate
+
+# 首次认证配置
+MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE=true      # 启用首次对话认证
+MFA_FIRST_MESSAGE_AUTH_DURATION=86400000    # 首次认证有效期 (24小时)
+
+# 二次认证配置
+MFA_VERIFICATION_DURATION=120000            # 敏感操作验证有效期 (2分钟)
+
+# 存储路径
+MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
+```
+
+**配置详解：**
+
+- `DABBY_CLIENT_ID`: Dabby (大白) 平台的 Client ID。
+- `DABBY_CLIENT_SECRET`: Dabby (大白) 平台的 Client Secret。
+
+**可选配置：**
+
+| 变量名                              | 描述                                 | 默认值                                            |
+| :---------------------------------- | :----------------------------------- | :------------------------------------------------ |
+| `MFA_SENSITIVE_KEYWORDS`            | 触发拦截的敏感关键词列表（逗号分隔） | `rm, restart, sudo, format...` (详见 `config.ts`) |
+| `MFA_VERIFICATION_DURATION`         | 敏感操作验证通过后的有效期（毫秒）   | `120000` (2分钟)                                  |
+| `MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE` | 是否开启首次对话强制认证             | `false` (设为 `true` 开启)                        |
+| `MFA_FIRST_MESSAGE_AUTH_DURATION`   | 首次对话认证的有效期（毫秒）         | `86400000` (24小时)                               |
+| `MFA_AUTH_STATE_DIR`                | 认证状态持久化存储目录               | `~/.openclaw/mfa-auth/`                           |
+
+### 3. 启用插件
+
+确保该扩展目录位于 OpenClaw 的 `extensions/` 目录下，OpenClaw 启动时会自动加载该插件。
+
+## 使用示例
+
+### 场景一：首次对话认证
+
+**配置**：`MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE=true`
+
+**新用户**：`你好`
+
+**OpenClaw (MFA 插件)**：
+
+> 🔒 **身份验证请求**
+>
+> 为了保障安全，首次对话需要进行实名认证。请点击链接完成验证：
+> http://localhost:18801/mfa-auth/session_12345
+>
+> 验证有效期: 5 分钟
+
+**用户**：(点击链接 -> 扫码认证成功)
+
+**OpenClaw**：
+
+> 🎉 首次认证成功！请重新发送消息以继续对话。
+
+### 场景二：执行敏感命令
+
+**用户**：`帮我delete一下我电脑桌面的test.txt文件` (假设 `delete` 在敏感词列表中)
+
+**OpenClaw (MFA 插件)**：
+
+> ⚠️ **🔐 该操作需要二次认证**
+>
+> 检测到敏感操作，请点击下方链接进行身份验证：
+> http://localhost:18801/mfa-auth/session_67890
+>
+> 验证有效期: 5 分钟
+>
+> 验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。
+
+**用户**：(点击链接 -> 扫码认证成功)
+
+**OpenClaw**：
+
+> ✅ 二次认证成功！
+> 请重新发送之前的命令以执行操作。
+
+### 场景三：主动重新认证
+
+用户可以使用 `/reauth` 命令主动清除当前的认证状态并重新进行身份验证。这在用户怀疑账号安全或需要刷新认证有效期时非常有用。
+
+**用户**：`/reauth`
+
+**OpenClaw (MFA 插件)**：
+
+> 🔐 **重新认证**
+>
+> 请点击以下链接完成身份验证:
+> http://localhost:18801/mfa-auth/session_abcde
+>
+> _验证有效期: 5 分钟_
+
+**用户**：(点击链接 -> 扫码认证成功)
+
+**OpenClaw**：
+
+> 🎉 重新认证成功！请重新发送消息以继续对话。
