@@ -5,7 +5,7 @@
 ## 功能特性
 
 1. **首次对话验证**：可配置新用户在首次发送消息时必须通过身份验证。
-2. **二次认证，敏感操作拦截**：自动拦截包含敏感关键词（如 `rm`, `restart`, `sudo` 等）的命令执行，要求用户进行二次验证。
+2. **二次认证，敏感操作拦截**：自动拦截包含敏感关键词（如 `rm`, `restart`, `sudo`, `delete` 等）的命令执行，要求用户进行二次验证。
 3. **二维码验证**：集成 **Dabby (大白)** 身份核验服务，提供便捷的扫码实名认证。
 4. **状态持久化**：验证状态可配置有效期并持久化保存，避免频繁重复验证。
 
@@ -139,9 +139,32 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 | `MFA_FIRST_MESSAGE_AUTH_DURATION`   | 首次对话认证的有效期（毫秒）         | `86400000` (24小时)                               |
 | `MFA_AUTH_STATE_DIR`                | 认证状态持久化存储目录               | `~/.openclaw/mfa-auth/`                           |
 
-### 3. 启用插件
+### 3. 启用插件 (openclaw.json)
 
-确保该扩展目录位于 OpenClaw 的 `extensions/` 目录下，OpenClaw 启动时会自动加载该插件。
+你需要在 `openclaw.json` 配置文件中显式加载并启用该插件。
+
+请编辑你的 `openclaw.json`，在 `plugins` 部分添加如下配置：
+
+```json
+{
+  "plugins": {
+    "load": {
+      "paths": [
+        // 确保包含 extensions 目录的绝对路径
+        "/path/to/your/openclaw/extensions"
+      ]
+    },
+    "entries": {
+      // 启用 mfa-auth 插件
+      "mfa-auth": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+> **注意**：请根据你的实际环境修改 `paths` 中的路径。
 
 ## 使用示例
 
@@ -208,3 +231,31 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 **OpenClaw**：
 
 > 🎉 重新认证成功！请重新发送消息以继续对话。
+
+## 推荐技能 (Skill)
+
+为了让 OpenClaw 拥有更强的能力（如联网搜索、操作浏览器、长期记忆），建议安装以下核心技能。
+
+### 1. 安装技能管理器 (ClawHub)
+
+ClawHub 是 OpenClaw 的"应用商店"和包管理器，用于安装和管理各种技能。它是 AI 的**进化系统**。
+
+```bash
+npm i -g clawhub
+```
+
+### 2. 安装增强技能
+
+| 技能名称                  | 类别          | 价值                                 | 安装命令                                |
+| :------------------------ | :------------ | :----------------------------------- | :-------------------------------------- |
+| **tavily-search**         | 感官系统 (眼) | 让 AI 能搜索实时信息，看到外面的世界 | `clawhub install tavily-search`         |
+| **agent-browser**         | 执行系统 (手) | 让 AI 能操作浏览器，访问和交互网页   | `clawhub install agent-browser`         |
+| **elite-longterm-memory** | 感官系统 (脑) | 给 AI 装上记忆，让它越用越懂你       | `clawhub install elite-longterm-memory` |
+
+**批量安装命令：**
+
+```bash
+clawhub install tavily-search
+clawhub install agent-browser
+clawhub install elite-longterm-memory
+```
