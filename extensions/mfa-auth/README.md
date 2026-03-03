@@ -259,3 +259,9 @@ clawhub install tavily-search
 clawhub install agent-browser
 clawhub install elite-longterm-memory
 ```
+
+---
+
+## 相关文档
+
+查看完整的[这3个 Skills 配置指南](../../use-skills-doc.md)
