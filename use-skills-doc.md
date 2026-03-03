@@ -138,7 +138,7 @@ npx elite-longterm-memory status
   },
   "skills": {
     "load": {
-      "extraDirs": ["~/clawd/skills"],
+      "extraDirs": ["~/clawd/skills"], // 根据实际安装路径调整
       "watch": true,
       "watchDebounceMs": 250
     },
@@ -471,12 +471,12 @@ openclaw gateway status
 openclaw gateway
 ```
 
-### 4. 访问 Dashboard
+### 4. 打开你的聊天工具
 
 打开浏览器访问：
 
 ```
-http://127.0.0.1:18789
+如：飞书AI助手
 ```
 
 ### 5. 测试每个 Skill
@@ -540,7 +540,7 @@ cat ~/clawd/SESSION-STATE.md
 **解决方法：**
 
 1. 检查配置文件格式是否正确
-2. 检查 `skills.load.extraDirs` 路径是否正确
+2. 检查 `skills.load.extraDirs` 路径是否正确，根据实际安装路径调整
 3. 重新安装依赖：
    ```bash
    cd ~/clawd/skills/skill-name
