@@ -230,10 +230,6 @@ clawhub install tavily-search
 # 或手动克隆
 git clone https://github.com/clawd/skill-tavily.git ~/clawd/skills/tavily-search
 
-# 安装依赖
-cd ~/clawd/skills/tavily-search
-pnpm install
-```
 
 #### 2. 获取 API Key
 
@@ -339,11 +335,6 @@ clawhub install agent-browser
 
 # 或手动克隆
 git clone https://github.com/clawd/skill-agent-browser.git ~/clawd/skills/agent-browser
-
-# 安装依赖
-cd ~/clawd/skills/agent-browser
-pnpm install
-```
 
 #### 2. 验证安装
 
