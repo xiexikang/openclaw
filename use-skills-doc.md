@@ -156,8 +156,11 @@ npx elite-longterm-memory status
 创建或编辑 `~/.openclaw/.env` 文件：
 
 ```bash
-# OpenAI API Key（必需）
+# OpenAI或Gemini或Voyage API Key（必需）
 OPENAI_API_KEY=your-openai-api-key-here
+GEMINI_API_KEY=your-gemini-api-key-here
+VOYAGE_API_KEY=your-voyage-api-key-here
+
 ```
 
 **获取 OpenAI API Key：**
@@ -434,8 +437,10 @@ Agent Browser 会在需要浏览器自动化时被自动调用，无需手动触
 ### `~/.openclaw/.env`
 
 ```bash
-# OpenAI API Key（必需）
+# OpenAI或Gemini或Voyage API Key（必需）
 OPENAI_API_KEY=your-openai-api-key-here
+GEMINI_API_KEY=your-gemini-api-key-here
+VOYAGE_API_KEY=your-voyage-api-key-here
 
 # Tavily API Key（可选，也可在 openclaw.json 中配置）
 TAVILY_API_KEY=tvly-your-api-key-here
@@ -641,6 +646,8 @@ cat ~/clawd/SESSION-STATE.md
 ### API 服务
 
 - OpenAI: https://platform.openai.com
+- Gemini: https://ai.google.dev
+- Voyage: https://www.voyageai.com
 - Tavily: https://tavily.com
 
 ---
