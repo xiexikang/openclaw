@@ -148,6 +148,10 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 ```json
 {
   "plugins": {
+    "enabled": true,
+    "allow": [
+      "mfa-auth"
+    ],
     "load": {
       "paths": [
         // 确保包含 extensions 目录的绝对路径
