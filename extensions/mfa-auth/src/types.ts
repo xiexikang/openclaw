@@ -41,6 +41,7 @@ export interface MfaConfig {
   enabledAuthMethods: AuthMethodType[];
   defaultAuthMethod: AuthMethodType;
   persistAuthStateDir?: string;
+  requireAuthOnSensitiveOperation?: boolean;
   requireAuthOnFirstMessage?: boolean;
   firstMessageAuthDuration?: number;
 }

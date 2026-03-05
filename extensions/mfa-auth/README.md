@@ -68,7 +68,7 @@ sequenceDiagram
 ```
 
 1.  **触发拦截**：
-    - 当用户执行 `bash` 或 `exec` 等工具且命令包含敏感词（如 `rm -rf`）时，`before_tool_call` 钩子被触发。
+    - 当配置了 `requireAuthOnSensitiveOperation` 且用户执行 `bash` 或 `exec` 等工具并命令包含敏感词（如 `rm -rf`）时，`before_tool_call` 钩子被触发。
     - 或者当配置了 `requireAuthOnFirstMessage` 且新用户发送第一条消息时，`message_received` 钩子被触发。
 
 2.  **生成会话**：
@@ -118,6 +118,7 @@ MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE=true      # 启用首次对话认证
 MFA_FIRST_MESSAGE_AUTH_DURATION=86400000    # 首次认证有效期 (24小时)
 
 # 二次认证配置
+MFA_REQUIRE_AUTH_ON_SENSITIVE_OPERATION=true  # 启用敏感操作二次认证
 MFA_VERIFICATION_DURATION=120000            # 敏感操作验证有效期 (2分钟)
 
 # 存储路径
@@ -134,6 +135,7 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 | 变量名                              | 描述                                 | 默认值                                            |
 | :---------------------------------- | :----------------------------------- | :------------------------------------------------ |
 | `MFA_SENSITIVE_KEYWORDS`            | 触发拦截的敏感关键词列表（逗号分隔） | `rm, restart, sudo, format...` (详见 `config.ts`) |
+| `MFA_REQUIRE_AUTH_ON_SENSITIVE_OPERATION` | 是否开启敏感操作二次认证             | `true`                                             |
 | `MFA_VERIFICATION_DURATION`         | 敏感操作验证通过后的有效期（毫秒）   | `120000` (2分钟)                                  |
 | `MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE` | 是否开启首次对话强制认证             | `false` (设为 `true` 开启)                        |
 | `MFA_FIRST_MESSAGE_AUTH_DURATION`   | 首次对话认证的有效期（毫秒）         | `86400000` (24小时)                               |

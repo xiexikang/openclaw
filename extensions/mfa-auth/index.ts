@@ -154,6 +154,10 @@ export default function register(api: OpenClawPluginApi) {
   });
 
   api.on("before_tool_call", async (event, ctx) => {
+    if (!config.requireAuthOnSensitiveOperation) {
+      return undefined;
+    }
+
     const { toolName, params } = event;
 
     api.logger.info(`[mfa-auth] Tool call detected: ${toolName}`);
