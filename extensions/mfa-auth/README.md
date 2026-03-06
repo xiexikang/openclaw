@@ -74,7 +74,7 @@ sequenceDiagram
 
 2.  **生成会话**：
     - `AuthManager` 创建一个验证会话，并调用 Dabby API 生成实名认证二维码。
-    - 系统通过原聊天频道（Telegram, Discord 等）向用户发送一个唯一的验证链接（例如 `http://localhost:18801/mfa-auth/<sessionId>`）。
+    - 系统通过原聊天频道（Telegram, Discord 等）向用户发送一个唯一的验证链接（例如 `http://10.30.1.53:18801/mfa-auth/<sessionId>`）。
 
 3.  **用户验证**：
     - 用户点击链接，在浏览器中看到二维码。
@@ -139,6 +139,9 @@ MFA_VERIFICATION_DURATION=120000            # 敏感操作验证有效期 (2分�
 
 # 存储路径
 MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
+
+# 服务器配置
+MFA_AUTH_HOST=10.30.1.53                    # 服务器主机名/IP (可选，默认自动检测本机IP)
 ```
 
 **配置详解：**
@@ -156,6 +159,13 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 | `MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE` | 是否开启首次对话强制认证             | `false` (设为 `true` 开启)                        |
 | `MFA_FIRST_MESSAGE_AUTH_DURATION`   | 首次对话认证的有效期（毫秒）         | `86400000` (24小时)                               |
 | `MFA_AUTH_STATE_DIR`                | 认证状态持久化存储目录               | `~/.openclaw/mfa-auth/`                           |
+| `MFA_AUTH_HOST`                     | 服务器主机名/IP地址                  | 自动检测本机IP (如 `10.30.1.53`)                  |
+
+**关于 MFA_AUTH_HOST**：
+- 该环境变量用于指定认证服务器的主机名或 IP 地址
+- 如果不设置，插件会自动检测本机的第一个非回环 IPv4 地址
+- 设置该变量可以覆盖自动检测，适用于需要使用特定 IP 或域名的场景
+- 认证链接将使用该地址生成，确保用户可以从其他设备访问认证页面
 
 ### 3. 启用插件 (openclaw.json)
 
@@ -201,7 +211,7 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 > 🔒 **身份验证请求**
 >
 > 为了保障安全，首次对话需要进行实名认证。请点击链接完成验证：
-> http://localhost:18801/mfa-auth/session_12345
+> http://10.30.1.53:18801/mfa-auth/session_12345
 >
 > 验证有效期: 5 分钟
 
@@ -220,7 +230,7 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 > ⚠️ **🔐 该操作需要二次认证**
 >
 > 检测到敏感操作，请点击下方链接进行身份验证：
-> http://localhost:18801/mfa-auth/session_67890
+> http://10.30.1.53:18801/mfa-auth/session_67890
 >
 > 验证有效期: 5 分钟
 >
@@ -244,7 +254,7 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 > 🔐 **重新认证**
 >
 > 请点击以下链接完成身份验证:
-> http://localhost:18801/mfa-auth/session_abcde
+> http://10.30.1.53:18801/mfa-auth/session_abcde
 >
 > _验证有效期: 5 分钟_
 

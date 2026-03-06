@@ -3,7 +3,7 @@ import { authManager } from "./src/auth-manager.js";
 import { config } from "./src/config.js";
 import { NotificationService } from "./src/notification-service.js";
 import { qrCodeAuthProvider } from "./src/providers/qr-code.js";
-import { startHttpServer, setNotifyCallback } from "./src/server.js";
+import { startHttpServer, setNotifyCallback, getServerIpAddress } from "./src/server.js";
 import type { AuthSession } from "./src/types.js";
 
 let serverStarted = false;
@@ -18,7 +18,9 @@ async function sendAuthMessage(
 ): Promise<void> {
   const session: AuthSession = {
     userId,
-    sessionId: "",
+    sessionId: "notification",
+    authMethod: "qr-code",
+    timestamp: Date.now(),
     originalContext: {
       sessionKey: `${channel || "web"}:${accountId || ""}:${userId}`,
       senderId: userId,
@@ -26,13 +28,11 @@ async function sendAuthMessage(
       channel: channel || "web",
       accountId: accountId || "",
       to,
-      toolName: "",
+      toolName: "notification",
       toolParams: {},
       timestamp: Date.now(),
       triggerType: "sensitive_operation",
     },
-    qrCodeUrl: "",
-    expireTime: 0,
   };
 
   await notificationService.sendAuthNotification(session, message);
@@ -49,11 +49,10 @@ export default function register(api: OpenClawPluginApi) {
 
     try {
       const commandBody = session.originalContext.commandBody;
-      const channel = session.originalContext.channel;
       const triggerType = session.originalContext.triggerType || "sensitive_operation";
 
       const isFirstMessageAuth = triggerType === "first_message";
-      const isReauth = commandBody?.trim() === "/reauth";
+      const isReauth = commandBody.trim() === "/reauth";
 
       let messageText = "";
       if (isFirstMessageAuth) {
@@ -154,7 +153,7 @@ export default function register(api: OpenClawPluginApi) {
       return undefined;
     }
 
-    const authUrl = `http://localhost:${config.port}/mfa-auth/${session.sessionId}`;
+    const authUrl = `http://${getServerIpAddress()}:${config.port}/mfa-auth/${session.sessionId}`;
 
     api.logger.info(`[mfa-auth] Blocking sensitive tool call: ${toolName} from ${userId}`);
 
@@ -233,7 +232,7 @@ export default function register(api: OpenClawPluginApi) {
       return;
     }
 
-    const authUrl = `http://localhost:${config.port}/mfa-auth/${session.sessionId}`;
+    const authUrl = `http://${getServerIpAddress()}:${config.port}/mfa-auth/${session.sessionId}`;
 
     api.logger.info(`[mfa-auth] Blocking first message from ${userId}`);
 
@@ -307,7 +306,7 @@ export default function register(api: OpenClawPluginApi) {
         return { text: "❌ 认证会话创建失败，请稍后重试。" };
       }
 
-      const authUrl = `http://localhost:${config.port}/mfa-auth/${session.sessionId}`;
+      const authUrl = `http://${getServerIpAddress()}:${config.port}/mfa-auth/${session.sessionId}`;
 
       api.logger.info(
         `[mfa-auth] Reauth requested by user ${userId}, session=${session.sessionId}`,

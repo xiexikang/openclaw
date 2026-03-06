@@ -5,15 +5,22 @@ import { dabbyClient } from "./dabby-client.js";
 import { qrCodeAuthProvider } from "./providers/qr-code.js";
 import { renderQrPngBase64 } from "./qr.js";
 import type { AuthSession } from "./types.js";
+import { getLocalIpAddress } from "./utils.js";
 
 let notifyCallback: ((session: AuthSession) => void | Promise<void>) | null = null;
+let serverIpAddress = "localhost";
 
 export function setNotifyCallback(callback: (session: AuthSession) => void | Promise<void>): void {
   console.log("[mfa-auth] setNotifyCallback called");
   notifyCallback = callback;
 }
 
+export function getServerIpAddress(): string {
+  return serverIpAddress;
+}
+
 export function startHttpServer(): void {
+  serverIpAddress = getLocalIpAddress();
   console.log("[mfa-auth] startHttpServer called, attempting to start server on port", config.port);
 
   const server = http.createServer(async (req, res) => {
@@ -163,7 +170,7 @@ export function startHttpServer(): void {
 
           await provider.initialize(session);
 
-          const authUrl = `http://localhost:${config.port}/mfa-auth/${session.sessionId}`;
+          const authUrl = `http://${serverIpAddress}:${config.port}/mfa-auth/${session.sessionId}`;
           const html = await provider.generateAuthPage(session, authUrl);
 
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -203,7 +210,7 @@ export function startHttpServer(): void {
   });
 
   server.listen(config.port, () => {
-    console.log(`[mfa-auth] HTTP server running on http://localhost:${config.port}`);
+    console.log(`[mfa-auth] HTTP server running on http://${serverIpAddress}:${config.port}`);
   });
 
   server.on("error", (err: any) => {
