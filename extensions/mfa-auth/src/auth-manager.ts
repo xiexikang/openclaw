@@ -14,11 +14,29 @@ export class AuthManager {
   private config = config;
   private pendingExecutions = new Map<string, { sessionId: string; timestamp: number }>();
   private persistDir: string;
+  private initialized = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
     this.persistDir = this.resolvePersistDir();
-    this.loadPersistedFirstMessageAuth();
     setInterval(() => this.cleanup(), 30000);
+  }
+
+  private async initialize(): Promise<void> {
+    if (this.initialized) return;
+    if (this.initPromise) return this.initPromise;
+
+    this.initPromise = (async () => {
+      try {
+        this.loadPersistedFirstMessageAuth();
+        this.initialized = true;
+        console.log("[mfa-auth] AuthManager initialized asynchronously");
+      } catch (error) {
+        console.error("[mfa-auth] Failed to initialize AuthManager:", error);
+      }
+    })();
+
+    return this.initPromise;
   }
 
   private resolvePersistDir(): string {
@@ -100,6 +118,13 @@ export class AuthManager {
   }
 
   isUserVerifiedForFirstMessage(userId: string): boolean {
+    if (!this.initialized) {
+      if (this.config.debug) {
+        console.log("[mfa-auth] AuthManager not yet initialized, allowing first message check");
+      }
+      return false;
+    }
+
     const verifiedTime = this.verifiedForFirstMessage.get(userId);
     if (!verifiedTime) return false;
 
@@ -114,6 +139,13 @@ export class AuthManager {
   }
 
   isUserVerifiedForSensitiveOps(userId: string): boolean {
+    if (!this.initialized) {
+      if (this.config.debug) {
+        console.log("[mfa-auth] AuthManager not yet initialized, allowing sensitive ops check");
+      }
+      return false;
+    }
+
     const verifiedTime = this.verifiedForSensitiveOps.get(userId);
     if (!verifiedTime) return false;
 
@@ -123,6 +155,10 @@ export class AuthManager {
     }
 
     return true;
+  }
+
+  async ensureInitialized(): Promise<void> {
+    await this.initialize();
   }
 
   getProvider(methodType: string): AuthMethodProvider | undefined {
@@ -320,4 +356,21 @@ export class AuthManager {
   }
 }
 
-export const authManager = new AuthManager();
+class AuthManagerFactory {
+  private static instance: AuthManager | null = null;
+
+  static getInstance(): AuthManager {
+    if (!this.instance) {
+      this.instance = new AuthManager();
+      console.log('[AuthManagerFactory] Created new AuthManager instance');
+    }
+    return this.instance;
+  }
+
+  static reset(): void {
+    this.instance = null;
+    console.log('[AuthManagerFactory] Reset AuthManager instance');
+  }
+}
+
+export const authManager = AuthManagerFactory.getInstance();

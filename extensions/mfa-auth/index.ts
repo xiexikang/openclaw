@@ -1,27 +1,53 @@
-import { loadConfig } from "../../src/config/io.js";
-import { sendMessageDiscord } from "../../src/discord/send.outbound.js";
-import { deliverOutboundPayloads } from "../../src/infra/outbound/deliver.js";
-import { resolveOutboundTarget } from "../../src/infra/outbound/targets.js";
 import type { OpenClawPluginApi } from "../../src/plugins/types.js";
-import { sendMessageSignal } from "../../src/signal/send.js";
-import { sendMessageSlack } from "../../src/slack/send.js";
-import { sendMessageTelegram } from "../../src/telegram/send.js";
 import { authManager } from "./src/auth-manager.js";
 import { config } from "./src/config.js";
+import { NotificationService } from "./src/notification-service.js";
 import { qrCodeAuthProvider } from "./src/providers/qr-code.js";
 import { startHttpServer, setNotifyCallback } from "./src/server.js";
 import type { AuthSession } from "./src/types.js";
 
 let serverStarted = false;
+const notificationService = NotificationService.getInstance();
+
+async function sendAuthMessage(
+  channel: string | undefined,
+  accountId: string | undefined,
+  to: string,
+  message: string,
+  userId: string,
+): Promise<void> {
+  const session: AuthSession = {
+    userId,
+    sessionId: "",
+    originalContext: {
+      sessionKey: `${channel || "web"}:${accountId || ""}:${userId}`,
+      senderId: userId,
+      commandBody: "",
+      channel: channel || "web",
+      accountId: accountId || "",
+      to,
+      toolName: "",
+      toolParams: {},
+      timestamp: Date.now(),
+      triggerType: "sensitive_operation",
+    },
+    qrCodeUrl: "",
+    expireTime: 0,
+  };
+
+  await notificationService.sendAuthNotification(session, message);
+}
 
 export default function register(api: OpenClawPluginApi) {
+  console.log("[mfa-auth] Plugin registration started");
   authManager.registerProvider(qrCodeAuthProvider);
+
+  notificationService.setConfig(api.config);
 
   setNotifyCallback(async (session: AuthSession) => {
     api.logger.info(`[mfa-auth] User ${session.userId} verified`);
 
     try {
-      const cfg = loadConfig();
       const commandBody = session.originalContext.commandBody;
       const channel = session.originalContext.channel;
       const triggerType = session.originalContext.triggerType || "sensitive_operation";
@@ -29,125 +55,23 @@ export default function register(api: OpenClawPluginApi) {
       const isFirstMessageAuth = triggerType === "first_message";
       const isReauth = commandBody?.trim() === "/reauth";
 
-      if (!channel || channel === "web") {
-        api.logger.info(
-          `[mfa-auth] Web channel detected or no channel for ${session.userId}. Sending fallback notification.`,
-        );
-
-        let messageText = "";
-        if (isFirstMessageAuth) {
-          messageText = isReauth
-            ? `🎉 重新认证成功！请重新发送消息以继续对话。`
-            : `🎉 首次认证成功！请重新发送消息以继续对话。`;
-        } else {
-          messageText = `✅ 二次认证成功！\n\n请回到聊天窗口，重新发送之前的命令（或回复'确认'）即可执行。`;
-        }
-
-        await deliverOutboundPayloads({
-          cfg,
-          channel: "web",
-          to: "",
-          accountId: session.originalContext.accountId,
-          payloads: [
-            {
-              text: messageText,
-            },
-          ],
-        });
-        return;
-      }
-
-      const to = session.originalContext.to || session.userId;
-      const accountId = session.originalContext.accountId;
-
-      let resolvedTo = to;
-      try {
-        const resolved = resolveOutboundTarget({
-          channel,
-          to,
-          cfg,
-          accountId,
-          mode: "explicit",
-        });
-
-        if (resolved.ok) {
-          resolvedTo = resolved.to;
-        }
-      } catch (e) {
-        api.logger.warn(`[mfa-auth] Error resolving target: ${e}. Proceeding with original 'to'.`);
-      }
-
-      const finalTo = resolvedTo.startsWith(`${channel}:`)
-        ? resolvedTo.slice(`${channel}:`.length)
-        : resolvedTo;
-
+      let messageText = "";
       if (isFirstMessageAuth) {
-        const messageText = isReauth
+        messageText = isReauth
           ? `🎉 重新认证成功！请重新发送消息以继续对话。`
           : `🎉 首次认证成功！请重新发送消息以继续对话。`;
-
-        await deliverOutboundPayloads({
-          cfg,
-          channel,
-          to: finalTo,
-          accountId,
-          payloads: [
-            {
-              text: messageText,
-            },
-          ],
-        });
-        return;
+      } else {
+        messageText = `✅ 二次认证成功！\n\n请回到聊天窗口，重新发送之前的命令（或回复'确认'）即可执行。`;
       }
 
-      try {
-        switch (channel) {
-          case "telegram":
-            await sendMessageTelegram(finalTo, commandBody, { accountId });
-            break;
-          case "discord":
-            await sendMessageDiscord(finalTo, commandBody, { accountId });
-            break;
-          case "slack":
-            await sendMessageSlack(finalTo, commandBody, { accountId });
-            break;
-          case "whatsapp":
-          case "signal":
-            await sendMessageSignal(finalTo, commandBody, { accountId });
-            break;
-          default:
-            api.logger.warn(
-              `[mfa-auth] Unsupported channel for auto-execution: ${channel}. Sending fallback notification.`,
-            );
-            await deliverOutboundPayloads({
-              cfg,
-              channel,
-              to: finalTo,
-              accountId,
-              payloads: [
-                {
-                  text: `✅ 二次认证成功！\n\n请重新发送之前的命令以执行操作。`,
-                },
-              ],
-            });
-            return;
-        }
-
-        api.logger.info(`[mfa-auth] Auto-executed command for ${session.userId} via ${channel}`);
-      } catch (error) {
-        api.logger.error(`[mfa-auth] Failed to auto-execute command: ${String(error)}`);
-        await deliverOutboundPayloads({
-          cfg,
-          channel,
-          to: finalTo,
-          accountId,
-          payloads: [
-            {
-              text: `✅ 二次认证成功！\n\n自动执行失败，请重新发送之前的命令以执行操作。`,
-            },
-          ],
-        });
-      }
+      await sendAuthMessage(
+        session.originalContext.channel,
+        session.originalContext.accountId,
+        session.originalContext.to || session.userId,
+        messageText,
+        session.userId,
+      );
+      api.logger.info(`[mfa-auth] Notification sent to user ${session.userId}`);
     } catch (error) {
       api.logger.error(`[mfa-auth] Failed in notify callback: ${String(error)}`);
     }
@@ -235,61 +159,32 @@ export default function register(api: OpenClawPluginApi) {
     api.logger.info(`[mfa-auth] Blocking sensitive tool call: ${toolName} from ${userId}`);
 
     if (parsedChannel && parsedChannel !== "web") {
-      const cfg = loadConfig();
-      const to = parsedTo || userId;
-      let resolvedTo = to;
-
-      try {
+      if (parsedChannel !== "feishu") {
+        api.logger.warn(
+          `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
+        );
+      } else {
         api.logger.info(
-          `[mfa-auth] Sensitive operation params: channel=${parsedChannel}, to=${to}, accountId=${parsedAccountId}, userId=${userId}`,
+          `[mfa-auth] Sensitive operation params: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}, userId=${userId}`,
         );
 
         try {
-          const resolved = resolveOutboundTarget({
-            channel: parsedChannel,
-            to,
-            cfg,
-            accountId: parsedAccountId,
-            mode: "explicit",
-          });
-
-          if (resolved.ok) {
-            resolvedTo = resolved.to;
-            api.logger.info(
-              `[mfa-auth] Sensitive operation resolved target: resolvedTo=${resolvedTo}`,
-            );
-          } else {
-            api.logger.warn(
-              `[mfa-auth] Sensitive operation failed to resolve target: ${String(resolved.error)}`,
-            );
-          }
-        } catch (e) {
-          api.logger.warn(`[mfa-auth] Sensitive operation error resolving target: ${e}`);
+          await sendAuthMessage(
+            parsedChannel,
+            parsedAccountId,
+            parsedTo || userId,
+            `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`,
+            userId,
+          );
+        } catch (error) {
+          const errorDetails = error instanceof Error ? error.message : String(error);
+          api.logger.error(
+            `[mfa-auth] Failed to send sensitive operation auth notification: ${errorDetails}`,
+          );
+          api.logger.error(
+            `[mfa-auth] Sensitive operation notification details: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}`,
+          );
         }
-
-        const finalTo = resolvedTo.startsWith(`${parsedChannel}:`)
-          ? resolvedTo.slice(`${parsedChannel}:`.length)
-          : resolvedTo;
-
-        await deliverOutboundPayloads({
-          cfg,
-          channel: parsedChannel,
-          to: finalTo,
-          accountId: parsedAccountId,
-          payloads: [
-            {
-              text: `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`,
-            },
-          ],
-        });
-      } catch (error) {
-        const errorDetails = error instanceof Error ? error.message : String(error);
-        api.logger.error(
-          `[mfa-auth] Failed to send sensitive operation auth notification: ${errorDetails}`,
-        );
-        api.logger.error(
-          `[mfa-auth] Sensitive operation notification details: channel=${parsedChannel}, to=${resolvedTo}, accountId=${parsedAccountId}`,
-        );
       }
     }
 
@@ -343,60 +238,32 @@ export default function register(api: OpenClawPluginApi) {
     api.logger.info(`[mfa-auth] Blocking first message from ${userId}`);
 
     if (parsedChannel && parsedChannel !== "web") {
-      const cfg = loadConfig();
-      let to = parsedTo || userId;
-      let resolvedTo = to;
-
-      try {
+      if (parsedChannel !== "feishu") {
+        api.logger.warn(
+          `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
+        );
+      } else {
         api.logger.info(
-          `[mfa-auth] First message auth params: channel=${parsedChannel}, to=${to}, accountId=${parsedAccountId}, userId=${userId}`,
+          `[mfa-auth] First message auth params: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}, userId=${userId}`,
         );
 
         try {
-          const resolved = resolveOutboundTarget({
-            channel: parsedChannel,
-            to,
-            cfg,
-            accountId: parsedAccountId,
-            mode: "explicit",
-          });
-
-          if (resolved.ok) {
-            to = resolved.to;
-            resolvedTo = resolved.to;
-            api.logger.info(
-              `[mfa-auth] Resolved target: resolvedTo=${resolvedTo}, resolved.ok=${resolved.ok}`,
-            );
-          } else {
-            api.logger.warn(`[mfa-auth] Failed to resolve target: ${String(resolved.error)}`);
-          }
-        } catch (e) {
-          api.logger.warn(`[mfa-auth] Error resolving target: ${e}`);
+          await sendAuthMessage(
+            parsedChannel,
+            parsedAccountId,
+            parsedTo || userId,
+            `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
+            userId,
+          );
+        } catch (error) {
+          const errorDetails = error instanceof Error ? error.message : String(error);
+          api.logger.error(
+            `[mfa-auth] Failed to send first message auth notification: ${errorDetails}`,
+          );
+          api.logger.error(
+            `[mfa-auth] Notification details: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}`,
+          );
         }
-
-        const finalTo = resolvedTo.startsWith(`${parsedChannel}:`)
-          ? resolvedTo.slice(`${parsedChannel}:`.length)
-          : resolvedTo;
-
-        await deliverOutboundPayloads({
-          cfg,
-          channel: parsedChannel,
-          to: finalTo,
-          accountId: parsedAccountId,
-          payloads: [
-            {
-              text: `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
-            },
-          ],
-        });
-      } catch (error) {
-        const errorDetails = error instanceof Error ? error.message : String(error);
-        api.logger.error(
-          `[mfa-auth] Failed to send first message auth notification: ${errorDetails}`,
-        );
-        api.logger.error(
-          `[mfa-auth] Notification details: channel=${parsedChannel}, to=${resolvedTo}, accountId=${parsedAccountId}`,
-        );
       }
     }
   });
@@ -408,12 +275,19 @@ export default function register(api: OpenClawPluginApi) {
     requireAuth: false,
     handler: async (ctx) => {
       const userId = ctx.from || ctx.senderId || "unknown";
+      api.logger.info(
+        `[mfa-auth] /reauth command received. userId=${userId}, ctx.channel=${ctx.channel}, ctx.accountId=${ctx.accountId}, ctx.to=${ctx.to}`,
+      );
 
       authManager.clearFirstMessageAuth(userId);
 
       const parsedChannel = ctx.channel;
       const parsedAccountId = ctx.accountId;
       const parsedTo = ctx.to;
+
+      api.logger.info(
+        `[mfa-auth] Parsed: channel=${parsedChannel}, accountId=${parsedAccountId}, to=${parsedTo}`,
+      );
 
       const session = authManager.generateSession(userId, {
         sessionKey: `${parsedChannel}:${parsedAccountId}:${userId}`,
@@ -435,49 +309,29 @@ export default function register(api: OpenClawPluginApi) {
 
       const authUrl = `http://localhost:${config.port}/mfa-auth/${session.sessionId}`;
 
-      api.logger.info(`[mfa-auth] Reauth requested by user ${userId}`);
+      api.logger.info(
+        `[mfa-auth] Reauth requested by user ${userId}, session=${session.sessionId}`,
+      );
+
+      if (!parsedChannel || parsedChannel === "web" || parsedChannel !== "feishu") {
+        api.logger.warn(`[mfa-auth] Channel ${parsedChannel} not supported`);
+        return { text: "❌ 当前渠道不支持认证。" };
+      }
 
       try {
-        let resolvedTo = parsedTo || userId;
-        try {
-          const resolved = resolveOutboundTarget({
-            channel: parsedChannel,
-            to: parsedTo || userId,
-            cfg: ctx.config,
-            accountId: parsedAccountId,
-            mode: "explicit",
-          });
+        api.logger.info(
+          `[mfa-auth] Sending reauth notification: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}`,
+        );
 
-          if (resolved.ok) {
-            resolvedTo = resolved.to;
-            api.logger.info(`[mfa-auth] Reauth resolved target: resolvedTo=${resolvedTo}`);
-          } else {
-            api.logger.warn(
-              `[mfa-auth] Reauth failed to resolve target: ${String(resolved.error)}`,
-            );
-            return { text: "❌ 解析目标地址失败，请稍后重试。" };
-          }
-        } catch (e) {
-          api.logger.warn(`[mfa-auth] Reauth error resolving target: ${e}`);
-          return { text: "❌ 解析目标地址失败，请稍后重试。" };
-        }
+        await sendAuthMessage(
+          parsedChannel,
+          parsedAccountId,
+          parsedTo || userId,
+          `🔐 重新认证\n\n请点击以下链接完成身份验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
+          userId,
+        );
 
-        const finalTo = resolvedTo.startsWith(`${parsedChannel}:`)
-          ? resolvedTo.slice(`${parsedChannel}:`.length)
-          : resolvedTo;
-
-        await deliverOutboundPayloads({
-          cfg: ctx.config,
-          channel: parsedChannel,
-          to: finalTo,
-          accountId: parsedAccountId,
-          payloads: [
-            {
-              text: `🔐 重新认证\n\n请点击以下链接完成身份验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
-            },
-          ],
-        });
-
+        api.logger.info(`[mfa-auth] Reauth notification sent successfully`);
         return { text: "📱 认证链接已发送，请查收。" };
       } catch (error) {
         api.logger.error(`[mfa-auth] Failed to send reauth notification: ${String(error)}`);

@@ -515,4 +515,21 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
   }
 }
 
-export const qrCodeAuthProvider = new QrCodeAuthProvider();
+class QrCodeAuthProviderFactory {
+  private static instance: QrCodeAuthProvider | null = null;
+
+  static getInstance(): QrCodeAuthProvider {
+    if (!this.instance) {
+      this.instance = new QrCodeAuthProvider();
+      console.log('[QrCodeAuthProviderFactory] Created new QrCodeAuthProvider instance');
+    }
+    return this.instance;
+  }
+
+  static reset(): void {
+    this.instance = null;
+    console.log('[QrCodeAuthProviderFactory] Reset QrCodeAuthProvider instance');
+  }
+}
+
+export const qrCodeAuthProvider = QrCodeAuthProviderFactory.getInstance();
