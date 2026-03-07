@@ -104,10 +104,11 @@ export function startHttpServer(): void {
               res.writeHead(200, { "Content-Type": "application/json" });
               res.end(
                 JSON.stringify({
-                  success: true,
-                  qrcodeBase64,
-                  expireTimeMs: session.expireTimeMs,
-                  remainingTime,
+                    success: true,
+                    qrcodeBase64,
+                    qrcodeContent: session.qrcodeContent,
+                    expireTimeMs: session.expireTimeMs,
+                    remainingTime,
                 }),
               );
             } catch (error) {

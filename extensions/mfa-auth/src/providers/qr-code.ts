@@ -83,6 +83,8 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       remainingTime,
       triggerType,
       isReauth,
+      authUrl,
+      session.qrcodeContent || "",
     );
   }
 
@@ -93,6 +95,8 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
     remainingTime: number,
     triggerType: "first_message" | "sensitive_operation" = "sensitive_operation",
     isReauth: boolean = false,
+    authUrl: string,
+    qrCodeContent: string,
   ): string {
     const escapedPreview = this.escapeHtml(commandPreview);
     const isFirstMessageAuth = triggerType === "first_message";
@@ -231,6 +235,28 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       background-color: #fff;
     }
     .qr-link {
+      margin-top: 15px;
+      text-align: center;
+      padding: 10px;
+      background: #f7fafc;
+      border-radius: 6px;
+    }
+    .qr-link-label {
+      font-size: 12px;
+      color: #718096;
+      margin-bottom: 5px;
+    }
+    .qr-link-url {
+      color: #3b82f6;
+      text-decoration: none;
+      word-break: break-all;
+      font-size: 13px;
+    }
+    .qr-link-url:hover {
+      text-decoration: underline;
+      color: #2563eb;
+    }
+    body.success-mode {
       font-size: 12px;
       color: #718096;
       word-break: break-all;
@@ -311,7 +337,10 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
           <span class="refresh-icon">🔄</span> 刷新二维码
         </button>
       </div>
-    </div>
+      <div class="qr-link">
+        <div class="qr-link-label">🔗 二维码内容：</div>
+        <a href="${qrCodeContent}" class="qr-link-url" id="qr-link-url" target="_blank">${qrCodeContent}</a>
+      </div>
     <div class="timer">⏱️ 有效期: <span id="timer">${Math.floor(remainingTime / 60)}:${String(remainingTime % 60).padStart(2, "0")}</span></div>
     <div id="status" class="status"></div>
     <div id="result" class="result"></div>
@@ -429,7 +458,14 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
             
             if (data.success) {
                 if (img) img.src = 'data:image/png;base64,' + data.qrcodeBase64;
-                
+
+                // 更新二维码链接
+                const qrLink = document.getElementById('qr-link-url');
+                if (qrLink && data.qrcodeContent) {
+                    qrLink.href = data.qrcodeContent;
+                    qrLink.textContent = data.qrcodeContent;
+                }
+
                 timeLeft = data.remainingTime;
                 isPolling = true;
                 
