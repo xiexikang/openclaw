@@ -257,12 +257,6 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       color: #2563eb;
     }
     body.success-mode {
-      font-size: 12px;
-      color: #718096;
-      word-break: break-all;
-      margin-top: 10px;
-    }
-    body.success-mode {
       background: #ffffff;
     }
     .container.success-mode {
@@ -338,29 +332,41 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
         </button>
       </div>
       <div class="qr-link">
-        <div class="qr-link-label">🔗 二维码内容：</div>
+        <div class="qr-link-label">🔗 二维码链接：</div>
         <a href="${qrCodeContent}" class="qr-link-url" id="qr-link-url" target="_blank">${qrCodeContent}</a>
       </div>
+    </div>
     <div class="timer">⏱️ 有效期: <span id="timer">${Math.floor(remainingTime / 60)}:${String(remainingTime % 60).padStart(2, "0")}</span></div>
     <div id="status" class="status"></div>
     <div id="result" class="result"></div>
   </div>
   <script>
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     const sessionId = "${sessionId}";
     const triggerType = "${triggerType}";
     const isFirstMessageAuth = triggerType === "first_message";
     const isReauth = ${isReauth};
     let timeLeft = ${remainingTime};
     let pollInterval;
+    let timerInterval;
     let isPolling = true;
 
     function updateTimer() {
       const timerEl = document.getElementById('timer');
+      if (!timerEl) return;
+      
       const minutes = Math.floor(timeLeft / 60);
       const seconds = timeLeft % 60;
       timerEl.textContent = minutes + ':' + String(seconds).padStart(2, '0');
+      
       if (timeLeft <= 0) {
         clearInterval(pollInterval);
+        clearInterval(timerInterval);
         isPolling = false;
         showExpired();
       }
@@ -368,7 +374,18 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
     }
 
     function showSuccess() {
+      clearInterval(pollInterval);
+      clearInterval(timerInterval);
+      isPolling = false;
+
       const result = document.getElementById('result');
+      // Ensure result is visible immediately
+      if (result) {
+          result.style.display = 'block';
+          result.classList.add('success');
+          result.classList.remove('error');
+      }
+
       const qrSection = document.querySelector('.qr-section');
       const timerDiv = document.querySelector('.timer');
       const infoEl = document.querySelector('.info');
@@ -392,15 +409,14 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
         successMessage = '✅ 认证成功！请回到聊天窗口，重新发送之前的命令' + operationNameTag + '即可执行。';
       }
 
-      result.innerHTML =
-        '<div class="success-view">' +
-        '<div class="success-icon"></div>' +
-        '<h2 class="success-title">扫码认证成功</h2>' +
-        '<p class="success-subtitle">' + successMessage + '</p>' +
-        '</div>';
-      result.style.display = 'block';
-      result.classList.add('success');
-      result.classList.remove('error');
+      if (result) {
+        result.innerHTML =
+            '<div class="success-view">' +
+            '<div class="success-icon"></div>' +
+            '<h2 class="success-title">扫码认证成功</h2>' +
+            '<p class="success-subtitle">' + successMessage + '</p>' +
+            '</div>';
+      }
 
       if (qrSection) qrSection.style.display = 'none';
       if (timerDiv) timerDiv.style.display = 'none';
@@ -412,20 +428,22 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
     }
 
     function showError(message) {
+      clearInterval(pollInterval);
+      clearInterval(timerInterval);
+      isPolling = false;
+
       const result = document.getElementById('result');
       result.textContent = '❌ ' + message;
       result.style.display = 'block';
       result.classList.add('error');
       result.classList.remove('success');
-      isPolling = false;
-      clearInterval(pollInterval);
-      
-      // Keep QR section visible but disable refresh if expired?
-      // No, error means we stopped. But refresh should be available if it was just an API error.
-      // If it's expired, we show expired state.
     }
 
     function showExpired() {
+      clearInterval(pollInterval);
+      clearInterval(timerInterval);
+      isPolling = false;
+
       const result = document.getElementById('result');
       result.innerHTML = '⚠️ 二维码已过期<br><button onclick="refreshQrCode()" class="refresh-btn" style="margin-top:10px">🔄 点击刷新</button>';
       result.style.display = 'block';
@@ -478,7 +496,9 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
                 
                 // Restart polling if stopped
                 clearInterval(pollInterval);
+                clearInterval(timerInterval);
                 pollInterval = setInterval(pollAuthStatus, 2000);
+                timerInterval = setInterval(updateTimer, 1000);
                 
                 // Reset button
                 if (btn) {
@@ -495,12 +515,6 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
                 btn.innerHTML = '<span class="refresh-icon">🔄</span> 重试刷新';
             }
         }
-    }
-
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
     }
 
     async function pollAuthStatus() {
@@ -530,7 +544,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       }
     }
 
-    setInterval(updateTimer, 1000);
+    timerInterval = setInterval(updateTimer, 1000);
     pollInterval = setInterval(pollAuthStatus, 2000);
     pollAuthStatus();
   </script>
@@ -557,14 +571,14 @@ class QrCodeAuthProviderFactory {
   static getInstance(): QrCodeAuthProvider {
     if (!this.instance) {
       this.instance = new QrCodeAuthProvider();
-      console.log('[QrCodeAuthProviderFactory] Created new QrCodeAuthProvider instance');
+      console.log("[QrCodeAuthProviderFactory] Created new QrCodeAuthProvider instance");
     }
     return this.instance;
   }
 
   static reset(): void {
     this.instance = null;
-    console.log('[QrCodeAuthProviderFactory] Reset QrCodeAuthProvider instance');
+    console.log("[QrCodeAuthProviderFactory] Reset QrCodeAuthProvider instance");
   }
 }
 

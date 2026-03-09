@@ -16,6 +16,9 @@ export function setNotifyCallback(callback: (session: AuthSession) => void | Pro
 }
 
 export function getServerIpAddress(): string {
+  if (config.domain) {
+    return config.domain;
+  }
   return serverIpAddress;
 }
 
@@ -52,7 +55,6 @@ export function startHttpServer(): void {
               const result = await authManager.verifySession(sessionId);
 
               if (result.success) {
-                authManager.markUserVerified(session.userId);
                 if (notifyCallback) {
                   await notifyCallback(session);
                 }
@@ -153,7 +155,7 @@ export function startHttpServer(): void {
 <body>
   <div class="container">
     <h1>❌ 验证二维码不存在或已过期</h1>
-    <p>请重新执行敏感操作以获取新的验证二维码</p>
+    <p>请重新执操作以获取新的验证二维码</p>
   </div>
 </body>
 </html>

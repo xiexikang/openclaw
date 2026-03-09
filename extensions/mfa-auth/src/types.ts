@@ -35,6 +35,7 @@ export interface MfaConfig {
   timeout: number;
   verificationDuration: number;
   port: number;
+  domain?: string;
   debug: boolean;
   sensitiveKeywords: string[];
   allowlistUsers: string[];

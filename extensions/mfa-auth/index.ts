@@ -77,6 +77,7 @@ export default function register(api: OpenClawPluginApi) {
   });
 
   api.on("before_tool_call", async (event, ctx) => {
+    await authManager.ensureInitialized();
     if (!config.requireAuthOnSensitiveOperation) {
       return undefined;
     }
@@ -128,8 +129,14 @@ export default function register(api: OpenClawPluginApi) {
     const sessionKeyParts = sessionKey.split(":").filter(Boolean);
 
     const parsedChannel = sessionKeyParts[2] || undefined;
-    const parsedAccountId = sessionKeyParts[3] || undefined;
+    let parsedAccountId = sessionKeyParts[3] || undefined;
     const parsedTo = sessionKeyParts[sessionKeyParts.length - 1] || undefined;
+
+    // Fix: If accountId is "direct" or "group", it's actually the peerKind, not an accountId.
+    // This happens when the sessionKey omits the accountId (using default account).
+    if (parsedAccountId === "direct" || parsedAccountId === "group") {
+      parsedAccountId = undefined;
+    }
 
     api.logger.info(
       `[mfa-auth] Parsed from sessionKey: channel=${parsedChannel}, accountId=${parsedAccountId}, to=${parsedTo}`,
@@ -196,6 +203,7 @@ export default function register(api: OpenClawPluginApi) {
   });
 
   api.on("message_received", async (event, ctx) => {
+    await authManager.ensureInitialized();
     if (!config.requireAuthOnFirstMessage) {
       return;
     }
@@ -350,11 +358,25 @@ export default function register(api: OpenClawPluginApi) {
 function checkSensitiveOperation(text: string): { isSensitive: boolean; preview: string } {
   const lowerText = text.toLowerCase();
 
+  if (config.debug) {
+    console.log(`[mfa-auth] Checking sensitive keywords for: ${text}`);
+    console.log(
+      `[mfa-auth] Sensitive keywords configured: ${JSON.stringify(config.sensitiveKeywords)}`,
+    );
+  }
+
   for (const keyword of config.sensitiveKeywords) {
     if (lowerText.includes(keyword.toLowerCase())) {
       const preview = text;
+      if (config.debug) {
+        console.log(`[mfa-auth] Sensitive keyword matched: ${keyword}`);
+      }
       return { isSensitive: true, preview };
     }
+  }
+
+  if (config.debug) {
+    console.log(`[mfa-auth] No sensitive keyword matched`);
   }
 
   return { isSensitive: false, preview: "" };
