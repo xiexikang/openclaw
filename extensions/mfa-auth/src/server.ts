@@ -22,6 +22,14 @@ export function getServerIpAddress(): string {
   return serverIpAddress;
 }
 
+export function getServerBaseUrl(): string {
+  const host = getServerIpAddress();
+  if (host.startsWith("http://") || host.startsWith("https://")) {
+    return host.replace(/\/$/, ""); // Remove trailing slash if present
+  }
+  return `http://${host}:${config.port}`;
+}
+
 export function startHttpServer(): void {
   serverIpAddress = getLocalIpAddress();
   console.log("[mfa-auth] startHttpServer called, attempting to start server on port", config.port);
@@ -106,11 +114,11 @@ export function startHttpServer(): void {
               res.writeHead(200, { "Content-Type": "application/json" });
               res.end(
                 JSON.stringify({
-                    success: true,
-                    qrcodeBase64,
-                    qrcodeContent: session.qrcodeContent,
-                    expireTimeMs: session.expireTimeMs,
-                    remainingTime,
+                  success: true,
+                  qrcodeBase64,
+                  qrcodeContent: session.qrcodeContent,
+                  expireTimeMs: session.expireTimeMs,
+                  remainingTime,
                 }),
               );
             } catch (error) {
@@ -173,7 +181,7 @@ export function startHttpServer(): void {
 
           await provider.initialize(session);
 
-          const authUrl = `http://${serverIpAddress}:${config.port}/mfa-auth/${session.sessionId}`;
+          const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
           const html = await provider.generateAuthPage(session, authUrl);
 
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });

@@ -251,6 +251,30 @@ export class AuthManager {
     return Array.from(this.sessions.keys());
   }
 
+  getLatestSessionByUserId(userId: string): AuthSession | undefined {
+    let latestSession: AuthSession | undefined;
+    let latestTimestamp = 0;
+
+    for (const session of this.sessions.values()) {
+      if (session.userId === userId && session.timestamp > latestTimestamp) {
+        latestSession = session;
+        latestTimestamp = session.timestamp;
+      }
+    }
+
+    return latestSession;
+  }
+
+  setSessionMetadata(sessionId: string, metadata: Record<string, unknown>): void {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.metadata = { ...session.metadata, ...metadata };
+      if (this.config.debug) {
+        console.log(`[mfa-auth] Set metadata for session ${sessionId}:`, metadata);
+      }
+    }
+  }
+
   updateAuthStatus(
     sessionId: string,
     status: "pending" | "scanned" | "verified" | "failed" | "expired",
@@ -362,14 +386,14 @@ class AuthManagerFactory {
   static getInstance(): AuthManager {
     if (!this.instance) {
       this.instance = new AuthManager();
-      console.log('[AuthManagerFactory] Created new AuthManager instance');
+      console.log("[AuthManagerFactory] Created new AuthManager instance");
     }
     return this.instance;
   }
 
   static reset(): void {
     this.instance = null;
-    console.log('[AuthManagerFactory] Reset AuthManager instance');
+    console.log("[AuthManagerFactory] Reset AuthManager instance");
   }
 }
 

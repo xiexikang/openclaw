@@ -10,7 +10,17 @@ export function getLocalIpAddress(): string {
   const interfaceNames = Object.keys(interfaces);
 
   const preferredPatterns = ["以太网", "Ethernet", "eth"];
-  const skipPatterns = ["Clash", "VPN", "TAP", "TUN", "Virtual", "Loopback", "Hyper-V", "WSL", "Docker"];
+  const skipPatterns = [
+    "Clash",
+    "VPN",
+    "TAP",
+    "TUN",
+    "Virtual",
+    "Loopback",
+    "Hyper-V",
+    "WSL",
+    "Docker",
+  ];
 
   for (const pattern of preferredPatterns) {
     for (const ifaceName of interfaceNames) {

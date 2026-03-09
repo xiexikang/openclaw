@@ -53,7 +53,7 @@ export class DabbyClient {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const data = await response.json() as DabbyAccessTokenResponse;
+        const data = (await response.json()) as DabbyAccessTokenResponse;
 
         if (data.retCode !== 0) {
           throw new Error(`Dabby API error: ${data.retMessage}`);
@@ -105,7 +105,7 @@ export class DabbyClient {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const data = await response.json() as DabbyQrCodeResponse;
+    const data = (await response.json()) as DabbyQrCodeResponse;
 
     if (data.retCode !== 0) {
       throw new Error(`Dabby API error: ${data.retMessage}`);
@@ -174,14 +174,14 @@ class DabbyClientFactory {
   static getInstance(): DabbyClient {
     if (!this.instance) {
       this.instance = new DabbyClient();
-      console.log('[DabbyClientFactory] Created new DabbyClient instance');
+      console.log("[DabbyClientFactory] Created new DabbyClient instance");
     }
     return this.instance;
   }
 
   static reset(): void {
     this.instance = null;
-    console.log('[DabbyClientFactory] Reset DabbyClient instance');
+    console.log("[DabbyClientFactory] Reset DabbyClient instance");
   }
 }
 

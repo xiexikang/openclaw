@@ -3,11 +3,12 @@ import { authManager } from "./src/auth-manager.js";
 import { config } from "./src/config.js";
 import { NotificationService } from "./src/notification-service.js";
 import { qrCodeAuthProvider } from "./src/providers/qr-code.js";
-import { startHttpServer, setNotifyCallback, getServerIpAddress } from "./src/server.js";
+import { startHttpServer, setNotifyCallback, getServerBaseUrl } from "./src/server.js";
 import type { AuthSession } from "./src/types.js";
 
 let serverStarted = false;
 const notificationService = NotificationService.getInstance();
+const pendingAuthUsers = new Set<string>();
 
 async function sendAuthMessage(
   channel: string | undefined,
@@ -15,6 +16,7 @@ async function sendAuthMessage(
   to: string,
   message: string,
   userId: string,
+  overrideSessionKey?: string,
 ): Promise<void> {
   const session: AuthSession = {
     userId,
@@ -22,7 +24,7 @@ async function sendAuthMessage(
     authMethod: "qr-code",
     timestamp: Date.now(),
     originalContext: {
-      sessionKey: `${channel || "web"}:${accountId || ""}:${userId}`,
+      sessionKey: overrideSessionKey || `${channel || "web"}:${accountId || ""}:${userId}`,
       senderId: userId,
       commandBody: "",
       channel: channel || "web",
@@ -63,16 +65,42 @@ export default function register(api: OpenClawPluginApi) {
         messageText = `✅ 二次认证成功！\n\n请回到聊天窗口，重新发送之前的命令（或回复'确认'）即可执行。`;
       }
 
+      const sessionKey = `${session.originalContext.channel}:${session.originalContext.accountId || ""}:${session.userId}`;
+      api.logger.info(`[mfa-auth] Sending notification to session: ${sessionKey}`);
+
       await sendAuthMessage(
         session.originalContext.channel,
         session.originalContext.accountId,
         session.originalContext.to || session.userId,
         messageText,
         session.userId,
+        sessionKey,
       );
       api.logger.info(`[mfa-auth] Notification sent to user ${session.userId}`);
     } catch (error) {
       api.logger.error(`[mfa-auth] Failed in notify callback: ${String(error)}`);
+    }
+  });
+
+  api.on("message_sending", async (event, ctx) => {
+    const userId = event.to || ctx.conversationId || "unknown";
+
+    if (pendingAuthUsers.has(userId)) {
+      const session = authManager.getLatestSessionByUserId(userId);
+      const metadata = session?.metadata as Record<string, unknown> | undefined;
+
+      if (metadata?.authUrl) {
+        pendingAuthUsers.delete(userId);
+
+        let messageText = "";
+        if (metadata.triggerType === "first_message") {
+          messageText = `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n请点击链接完成验证:\n${metadata.authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
+        } else if (metadata.triggerType === "sensitive_operation") {
+          messageText = `🔐 该操作需要二次认证\n\n检测到敏感操作: ${metadata.commandPreview}\n\n请点击链接完成验证:\n${metadata.authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`;
+        }
+
+        return { content: messageText };
+      }
     }
   });
 
@@ -160,9 +188,22 @@ export default function register(api: OpenClawPluginApi) {
       return undefined;
     }
 
-    const authUrl = `http://${getServerIpAddress()}:${config.port}/mfa-auth/${session.sessionId}`;
+    const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
 
     api.logger.info(`[mfa-auth] Blocking sensitive tool call: ${toolName} from ${userId}`);
+
+    if (parsedChannel === "webchat" || parsedChannel === "web") {
+      pendingAuthUsers.add(userId);
+      authManager.setSessionMetadata(session.sessionId, {
+        authUrl,
+        triggerType: "sensitive_operation",
+        commandPreview: preview,
+      });
+      return {
+        block: true,
+        blockReason: `🔐 该操作需要二次认证`,
+      };
+    }
 
     if (parsedChannel && parsedChannel !== "web") {
       if (parsedChannel !== "feishu") {
@@ -217,11 +258,11 @@ export default function register(api: OpenClawPluginApi) {
     api.logger.info(`[mfa-auth] First message from unauthenticated user ${userId}, requiring auth`);
 
     const parsedChannel = ctx.channelId;
-    const parsedAccountId = ctx.accountId;
+    const parsedAccountId = ctx.accountId || "";
     const parsedTo = event.from;
 
     const session = authManager.generateSession(userId, {
-      sessionKey: `${ctx.channelId}:${ctx.accountId}:${event.from}`,
+      sessionKey: `${ctx.channelId}:${parsedAccountId}:${event.from}`,
       senderId: userId,
       commandBody: event.content || "",
       channel: parsedChannel,
@@ -240,9 +281,18 @@ export default function register(api: OpenClawPluginApi) {
       return;
     }
 
-    const authUrl = `http://${getServerIpAddress()}:${config.port}/mfa-auth/${session.sessionId}`;
+    const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
 
     api.logger.info(`[mfa-auth] Blocking first message from ${userId}`);
+
+    if (parsedChannel === "webchat" || parsedChannel === "web") {
+      pendingAuthUsers.add(userId);
+      authManager.setSessionMetadata(session.sessionId, {
+        authUrl,
+        triggerType: "first_message",
+      });
+      return;
+    }
 
     if (parsedChannel && parsedChannel !== "web") {
       if (parsedChannel !== "feishu") {
@@ -289,7 +339,7 @@ export default function register(api: OpenClawPluginApi) {
       authManager.clearFirstMessageAuth(userId);
 
       const parsedChannel = ctx.channel;
-      const parsedAccountId = ctx.accountId;
+      const parsedAccountId = ctx.accountId || "";
       const parsedTo = ctx.to;
 
       api.logger.info(
@@ -314,13 +364,19 @@ export default function register(api: OpenClawPluginApi) {
         return { text: "❌ 认证会话创建失败，请稍后重试。" };
       }
 
-      const authUrl = `http://${getServerIpAddress()}:${config.port}/mfa-auth/${session.sessionId}`;
+      const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
 
       api.logger.info(
         `[mfa-auth] Reauth requested by user ${userId}, session=${session.sessionId}`,
       );
 
-      if (!parsedChannel || parsedChannel === "web" || parsedChannel !== "feishu") {
+      if (parsedChannel === "webchat" || parsedChannel === "web") {
+        return {
+          text: `🔐 重新认证\n\n请点击以下链接完成身份验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
+        };
+      }
+
+      if (!parsedChannel || parsedChannel !== "feishu") {
         api.logger.warn(`[mfa-auth] Channel ${parsedChannel} not supported`);
         return { text: "❌ 当前渠道不支持认证。" };
       }

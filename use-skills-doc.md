@@ -223,7 +223,7 @@ Tavily Search 是通过 Tavily API 进行 AI 优化的网页搜索工具：
 
 #### 1. 安装 Skill
 
-```bash
+````bash
 # 使用 clawhub 安装
 clawhub install tavily-search
 
@@ -256,7 +256,7 @@ git clone https://github.com/clawd/skill-tavily.git ~/clawd/skills/tavily-search
     }
   }
 }
-```
+````
 
 #### 配置环境变量（可选）
 
@@ -329,7 +329,7 @@ Agent Browser 是快速 Rust-based 无头浏览器自动化 CLI，支持：
 
 #### 1. 安装 Skill
 
-```bash
+````bash
 # 使用 clawhub 安装
 clawhub install agent-browser
 
@@ -341,7 +341,7 @@ git clone https://github.com/clawd/skill-agent-browser.git ~/clawd/skills/agent-
 ```bash
 # 检查 Skill 状态
 openclaw skills list
-```
+````
 
 **预期输出：**
 

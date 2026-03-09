@@ -1,10 +1,10 @@
-import type { ClawdbotConfig } from "openclaw/plugin-sdk";
 import * as Lark from "@larksuiteoapi/node-sdk";
+import type { ClawdbotConfig } from "openclaw/plugin-sdk";
 import { resolveFeishuAccount } from "../../feishu/src/accounts.js";
 import { createFeishuClient } from "../../feishu/src/client.js";
-import { resolveFeishuSendTarget } from "../../feishu/src/send-target.js";
 import { getFeishuRuntime } from "../../feishu/src/runtime.js";
 import { assertFeishuMessageApiSuccess, toFeishuSendResult } from "../../feishu/src/send-result.js";
+import { resolveFeishuSendTarget } from "../../feishu/src/send-target.js";
 import type { AuthSession } from "./types.js";
 
 class NotificationService {
@@ -32,8 +32,9 @@ class NotificationService {
       return;
     }
 
-    if (channel === "web") {
-      console.log(`[mfa-auth] Web channel: auth link would be shown in UI`);
+    if (channel === "webchat" || channel === "web") {
+      console.log(`[mfa-auth] Web/webchat channel: sending notification via WebSocket`);
+      await this.sendToWebChat(session, message);
       return;
     }
 
@@ -43,6 +44,108 @@ class NotificationService {
     }
 
     console.warn(`[mfa-auth] Unsupported channel: ${channel}`);
+  }
+
+  private async sendToWebChat(session: AuthSession, message: string): Promise<void> {
+    const { sessionKey } = session.originalContext;
+    const port = this.cfg?.gateway?.port || 18789;
+    const token = this.cfg?.gateway?.auth?.token;
+
+    console.log(`[mfa-auth] sendToWebChat: sessionKey=${sessionKey}, port=${port}`);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const wsModule = await import("ws");
+    const WebSocket = wsModule.default || (wsModule as any).WebSocket;
+
+    return new Promise((resolve, reject) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ws: any = new WebSocket(`ws://127.0.0.1:${port}`);
+
+      const requestId = `mfa-req-${Date.now()}`;
+      const handshakeId = `mfa-handshake-${Date.now()}`;
+      let handshakeCompleted = false;
+
+      ws.on("open", () => {
+        // Send handshake
+        const handshake = {
+          type: "req",
+          id: handshakeId,
+          method: "connect",
+          params: {
+            minProtocol: 1,
+            maxProtocol: 3,
+            client: {
+              id: "gateway-client",
+              version: "1.0.0",
+              platform: "node",
+              mode: "backend",
+            },
+            auth: token ? { token } : undefined,
+            role: "operator",
+            scopes: ["operator.admin"],
+          },
+        };
+        ws.send(JSON.stringify(handshake));
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ws.on("message", (data: any) => {
+        try {
+          const response = JSON.parse(data.toString());
+
+          // Handle handshake response
+          if (response.id === handshakeId) {
+            if (!response.ok) {
+              ws.close();
+              reject(new Error(`Handshake failed: ${JSON.stringify(response.error)}`));
+              return;
+            }
+
+            handshakeCompleted = true;
+
+            // Handshake successful, send chat.inject
+            const payload = {
+              type: "req",
+              id: requestId,
+              method: "chat.inject",
+              params: {
+                sessionKey,
+                message,
+                label: "MFA Auth",
+              },
+            };
+            ws.send(JSON.stringify(payload));
+            return;
+          }
+
+          // Handle chat.inject response
+          if (response.id === requestId) {
+            ws.close();
+            if (response.error) {
+              reject(new Error(`Chat inject failed: ${JSON.stringify(response.error)}`));
+            } else {
+              resolve();
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ws.on("error", (err: any) => {
+        reject(err);
+      });
+
+      setTimeout(() => {
+        try {
+          ws.terminate();
+        } catch (e) {
+          // ignore
+        }
+        reject(new Error("WebSocket timeout"));
+      }, 5000);
+    });
   }
 
   private async sendToFeishu(session: AuthSession, message: string): Promise<void> {
@@ -66,20 +169,19 @@ class NotificationService {
       });
 
       let messageText = message;
-      
+
       try {
         const tableMode = getFeishuRuntime().channel.text.resolveMarkdownTableMode({
           cfg: this.cfg,
           channel: "feishu",
         });
 
-        messageText = getFeishuRuntime().channel.text.convertMarkdownTables(
-          message,
-          tableMode,
-        );
+        messageText = getFeishuRuntime().channel.text.convertMarkdownTables(message, tableMode);
       } catch (error) {
         if (error instanceof Error && error.message === "Feishu runtime not initialized") {
-          console.warn("[mfa-auth] Feishu runtime not initialized yet, using original message text");
+          console.warn(
+            "[mfa-auth] Feishu runtime not initialized yet, using original message text",
+          );
           messageText = message;
         } else {
           throw error;
@@ -101,18 +203,14 @@ class NotificationService {
 
       assertFeishuMessageApiSuccess(response, "Feishu send failed");
       const result = toFeishuSendResult(response, receiveId);
-      console.log(
-        `[mfa-auth] Feishu message sent: ${result.messageId} to ${to}`,
-      );
+      console.log(`[mfa-auth] Feishu message sent: ${result.messageId} to ${to}`);
     } catch (error) {
       console.error(`[mfa-auth] Failed to send Feishu message: ${error}`);
       throw error;
     }
   }
 
-  private buildFeishuPostMessagePayload(params: {
-    messageText: string;
-  }): {
+  private buildFeishuPostMessagePayload(params: { messageText: string }): {
     content: string;
     msgType: string;
   } {

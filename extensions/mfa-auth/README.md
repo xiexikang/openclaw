@@ -9,6 +9,7 @@
 3. **二维码验证**：集成 **Dabby (大白)** 身份核验服务,提供便捷的扫码实名认证。
 4. **状态持久化**：验证状态可配置有效期并持久化保存,避免频繁重复验证。
 5. **多渠道支持**：支持 **飞书(Feishu)** 和 **Web** 聊天渠道,为不同场景提供灵活的认证方式。
+6. **域名与 HTTPS 支持**：支持配置自定义域名和 Nginx 反向代理，适应生产环境部署。
 
 ## 实现原理
 
@@ -68,35 +69,18 @@ sequenceDiagram
     end
 ```
 
-1.  **触发拦截**：
-    - 当配置了 `requireAuthOnSensitiveOperation` 且用户执行 `bash` 或 `exec` 等工具并命令包含敏感词（如 `rm -rf`）时，`before_tool_call` 钩子被触发。
-    - 或者当配置了 `requireAuthOnFirstMessage` 且新用户发送第一条消息时，`message_received` 钩子被触发。
-
-2.  **生成会话**：
-    - `AuthManager` 创建一个验证会话，并调用 Dabby API 生成实名认证二维码。
-    - 系统通过原聊天频道（Telegram, Discord 等）向用户发送一个唯一的验证链接（例如 `http://localhost:18801/mfa-auth/<sessionId>`）。
-
-3.  **用户验证**：
-    - 用户点击链接，在浏览器中看到二维码。
-    - 用户使用手机扫码完成实名认证。
-    - 浏览器页面轮询后端接口查询认证状态。
-
-4.  **恢复执行**：
-    - 验证成功后，插件更新用户的验证状态。
-    - 对于敏感操作拦截，插件会自动在原频道重新提交之前的命令。
-    - 对于首次对话拦截，用户可继续正常对话。
-
 ## 渠道支持
 
 本插件目前支持以下聊天渠道:
 
-| 渠道 | 状态 | 说明 |
-| :--- | :--- | :--- |
-| **飞书 (Feishu/Lark)** | ✅ 完全支持 | 支持发送认证链接,完成扫码认证 |
-| **Web** | ✅ 完全支持 | 认证链接直接在 Web UI 中显示 |
+| 渠道                                                               | 状态        | 说明                                |
+| :----------------------------------------------------------------- | :---------- | :---------------------------------- |
+| **飞书 (Feishu/Lark)**                                             | ✅ 完全支持 | 支持发送认证链接,完成扫码认证       |
+| **Web**                                                            | ✅ 完全支持 | 认证链接直接在 Web UI 中显示        |
 | 其他渠道 (Telegram, Discord, Slack, Signal, iMessage, WhatsApp 等) | ⚠️ 有限支持 | 不会发送认证通知,但仍会拦截敏感操作 |
 
 **注意**:
+
 - 对于不支持的渠道,插件会记录警告日志,但不会发送认证通知
 - Web 渠道是内部渠道,认证链接会直接显示在 Web UI 中,不需要主动发送消息
 - 飞书渠道需要正确配置飞书账号信息才能发送认证链接
@@ -127,6 +111,7 @@ DABBY_CLIENT_ID=your_client_id_here
 DABBY_CLIENT_SECRET=your_client_secret_here
 
 # 敏感操作关键词 (自定义拦截列表)
+# 只有当命令中包含这些关键词时，才会被拦截
 MFA_SENSITIVE_KEYWORDS=delete,remove,rm,unlink,rmdir,format,wipe,erase,exec,eval,system,shell,bash,sudo,su,chmod,chown,restart,shutdown,reboot,gateway,kill,stop,drop,truncate
 
 # 首次认证配置
@@ -139,25 +124,60 @@ MFA_VERIFICATION_DURATION=120000            # 敏感操作验证有效期 (2分�
 
 # 存储路径
 MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
+
+# 域名配置 (用于生成认证链接)
+# 如果不配置，默认使用 http://localhost:18801
+# 如果配置了 Nginx 反向代理，请填写你的域名
+MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
 ```
 
 **配置详解：**
 
 - `DABBY_CLIENT_ID`: Dabby (大白) 平台的 Client ID。
 - `DABBY_CLIENT_SECRET`: Dabby (大白) 平台的 Client Secret。
+- `MFA_AUTH_DOMAIN`: **重要！** 如果你的服务器部署在云端，用户无法直接访问内网 IP，请配置此项。
+  - 示例：`http://auth.example.com` 或 `https://auth.example.com`
+  - 如果包含协议头（http/https），插件将直接使用该 URL 前缀，不再附加端口号（适用于 Nginx 反向代理场景）。
+  - 如果不包含协议头，插件会自动附加 `http://` 和端口号（默认 18801）。
 
 **可选配置：**
 
-| 变量名                              | 描述                                 | 默认值                                            |
-| :---------------------------------- | :----------------------------------- | :------------------------------------------------ |
-| `MFA_SENSITIVE_KEYWORDS`            | 触发拦截的敏感关键词列表（逗号分隔） | `rm, restart, sudo, format...` (详见 `config.ts`) |
-| `MFA_REQUIRE_AUTH_ON_SENSITIVE_OPERATION` | 是否开启敏感操作二次认证             | `true`                                             |
-| `MFA_VERIFICATION_DURATION`         | 敏感操作验证通过后的有效期（毫秒）   | `120000` (2分钟)                                  |
-| `MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE` | 是否开启首次对话强制认证             | `false` (设为 `true` 开启)                        |
-| `MFA_FIRST_MESSAGE_AUTH_DURATION`   | 首次对话认证的有效期（毫秒）         | `86400000` (24小时)                               |
-| `MFA_AUTH_STATE_DIR`                | 认证状态持久化存储目录               | `~/.openclaw/mfa-auth/`                           |
+| 变量名                                    | 描述                                 | 默认值                                            |
+| :---------------------------------------- | :----------------------------------- | :------------------------------------------------ |
+| `MFA_SENSITIVE_KEYWORDS`                  | 触发拦截的敏感关键词列表（逗号分隔） | `rm, restart, sudo, format...` (详见 `config.ts`) |
+| `MFA_REQUIRE_AUTH_ON_SENSITIVE_OPERATION` | 是否开启敏感操作二次认证             | `true`                                            |
+| `MFA_VERIFICATION_DURATION`               | 敏感操作验证通过后的有效期（毫秒）   | `120000` (2分钟)                                  |
+| `MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE`       | 是否开启首次对话强制认证             | `false` (设为 `true` 开启)                        |
+| `MFA_FIRST_MESSAGE_AUTH_DURATION`         | 首次对话认证的有效期（毫秒）         | `86400000` (24小时)                               |
+| `MFA_AUTH_STATE_DIR`                      | 认证状态持久化存储目录               | `~/.openclaw/mfa-auth/`                           |
 
-### 3. 启用插件 (openclaw.json)
+### 3. Nginx 反向代理配置 (推荐)
+
+为了让外网用户能够访问认证页面，建议配置 Nginx 反向代理。
+
+**nginx.conf 示例**：
+
+```nginx
+server {
+    listen 80;
+    server_name cclawd.dbhl.cn;  # 你的域名
+
+    location /mfa-auth/ {
+        proxy_pass http://localhost:18801;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+**配合的环境变量**：
+```bash
+MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
+```
+
+### 4. 启用插件 (openclaw.json)
 
 你需要在 `openclaw.json` 配置文件中显式加载并启用该插件。
 
@@ -167,9 +187,7 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 {
   "plugins": {
     "enabled": true,
-    "allow": [
-      "mfa-auth"
-    ],
+    "allow": ["mfa-auth"],
     "load": {
       "paths": [
         // 确保包含 extensions 目录的绝对路径
@@ -201,7 +219,7 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 > 🔒 **身份验证请求**
 >
 > 为了保障安全，首次对话需要进行实名认证。请点击链接完成验证：
-> http://localhost:18801/mfa-auth/session_12345
+> http://cclawd.dbhl.cn/mfa-auth/session_12345
 >
 > 验证有效期: 5 分钟
 
@@ -220,7 +238,7 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 > ⚠️ **🔐 该操作需要二次认证**
 >
 > 检测到敏感操作，请点击下方链接进行身份验证：
-> http://localhost:18801/mfa-auth/session_67890
+> http://cclawd.dbhl.cn/mfa-auth/session_67890
 >
 > 验证有效期: 5 分钟
 >
@@ -244,7 +262,7 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 > 🔐 **重新认证**
 >
 > 请点击以下链接完成身份验证:
-> http://localhost:18801/mfa-auth/session_abcde
+> http://cclawd.dbhl.cn/mfa-auth/session_abcde
 >
 > _验证有效期: 5 分钟_
 

@@ -12,6 +12,7 @@ export interface AuthSession {
   qrcodeContent?: string;
   expireTimeMs?: number;
   authStatus?: AuthStatus;
+  metadata?: Record<string, unknown>;
 }
 
 export type AuthTriggerType = "first_message" | "sensitive_operation";
