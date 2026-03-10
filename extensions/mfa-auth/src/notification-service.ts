@@ -61,12 +61,28 @@ class NotificationService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ws: any = new WebSocket(`ws://127.0.0.1:${port}`);
 
-      const requestId = `mfa-req-${Date.now()}`;
       const handshakeId = `mfa-handshake-${Date.now()}`;
-      let handshakeCompleted = false;
+      const sessionsListId = `mfa-sessions-${Date.now()}`;
+      let currentInjectId = "";
+      let candidateSessionKeys: string[] = [];
+      let injectIndex = 0;
+
+      const sendInject = (targetSessionKey: string) => {
+        currentInjectId = `mfa-req-${Date.now()}-${injectIndex}`;
+        const payload = {
+          type: "req",
+          id: currentInjectId,
+          method: "chat.inject",
+          params: {
+            sessionKey: targetSessionKey,
+            message,
+            label: "MFA Auth",
+          },
+        };
+        ws.send(JSON.stringify(payload));
+      };
 
       ws.on("open", () => {
-        // Send handshake
         const handshake = {
           type: "req",
           id: handshakeId,
@@ -93,42 +109,72 @@ class NotificationService {
         try {
           const response = JSON.parse(data.toString());
 
-          // Handle handshake response
           if (response.id === handshakeId) {
             if (!response.ok) {
               ws.close();
               reject(new Error(`Handshake failed: ${JSON.stringify(response.error)}`));
               return;
             }
-
-            handshakeCompleted = true;
-
-            // Handshake successful, send chat.inject
-            const payload = {
+            const listPayload = {
               type: "req",
-              id: requestId,
-              method: "chat.inject",
+              id: sessionsListId,
+              method: "sessions.list",
               params: {
-                sessionKey,
-                message,
-                label: "MFA Auth",
+                limit: 200,
+                includeGlobal: true,
+                includeUnknown: true,
               },
             };
-            ws.send(JSON.stringify(payload));
+            ws.send(JSON.stringify(listPayload));
             return;
           }
 
-          // Handle chat.inject response
-          if (response.id === requestId) {
-            ws.close();
-            if (response.error) {
-              reject(new Error(`Chat inject failed: ${JSON.stringify(response.error)}`));
-            } else {
-              resolve();
+          if (response.id === sessionsListId) {
+            if (!response.ok) {
+              ws.close();
+              reject(new Error(`sessions.list failed: ${JSON.stringify(response.error)}`));
+              return;
             }
+            candidateSessionKeys = this.resolveWebchatSessionCandidates({
+              requestedSessionKey: sessionKey,
+              userId: session.userId,
+              targetTo: session.originalContext.to,
+              sessionsListResult: response.result,
+            });
+            if (candidateSessionKeys.length === 0) {
+              ws.close();
+              reject(new Error("No candidate webchat sessions found"));
+              return;
+            }
+            console.log(
+              `[mfa-auth] candidate webchat sessions: ${candidateSessionKeys.join(", ")}`,
+            );
+            injectIndex = 0;
+            sendInject(candidateSessionKeys[injectIndex]);
+            return;
+          }
+
+          if (response.id === currentInjectId) {
+            if (response.ok && !response.error) {
+              ws.close();
+              resolve();
+              return;
+            }
+            const errMsg = String(response?.error?.message ?? "").toLowerCase();
+            const shouldTryNext = errMsg.includes("session not found");
+            if (shouldTryNext && injectIndex + 1 < candidateSessionKeys.length) {
+              injectIndex += 1;
+              sendInject(candidateSessionKeys[injectIndex]);
+              return;
+            }
+            ws.close();
+            reject(
+              new Error(
+                `Chat inject failed after trying [${candidateSessionKeys.join(", ")}]: ${JSON.stringify(response.error)}`,
+              ),
+            );
           }
         } catch (e) {
-          // ignore
         }
       });
 
@@ -140,12 +186,83 @@ class NotificationService {
       setTimeout(() => {
         try {
           ws.terminate();
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) {}
         reject(new Error("WebSocket timeout"));
       }, 5000);
     });
+  }
+
+  private resolveWebchatSessionCandidates(params: {
+    requestedSessionKey?: string;
+    userId: string;
+    targetTo?: string;
+    sessionsListResult: unknown;
+  }): string[] {
+    const normalizedTarget = String(params.targetTo || params.userId || "")
+      .trim()
+      .toLowerCase();
+    const resultObject =
+      params.sessionsListResult && typeof params.sessionsListResult === "object"
+        ? (params.sessionsListResult as Record<string, unknown>)
+        : undefined;
+    const sessionsRaw = Array.isArray(resultObject?.sessions) ? resultObject.sessions : [];
+    const webchatRows = sessionsRaw
+      .map((row) =>
+        row && typeof row === "object" ? (row as Record<string, unknown>) : undefined,
+      )
+      .filter((row): row is Record<string, unknown> => Boolean(row))
+      .filter((row) => {
+        const ch = String(row.channel ?? "").trim().toLowerCase();
+        const dc = row.deliveryContext as Record<string, unknown> | undefined;
+        const dcChannel = String(dc?.channel ?? "").trim().toLowerCase();
+        return ch === "webchat" || ch === "web" || dcChannel === "webchat" || dcChannel === "web";
+      });
+
+    const exactRows = webchatRows.filter((row) => {
+      const dc = row.deliveryContext as Record<string, unknown> | undefined;
+      const peer = String(dc?.to ?? row.lastTo ?? "").trim().toLowerCase();
+      return peer.length > 0 && peer === normalizedTarget;
+    });
+    const fallbackRows = webchatRows.filter((row) => !exactRows.includes(row));
+    
+    // Fuzzy match: include any webchat session that contains the userId in its key
+    const fuzzyRows = webchatRows.filter((row) => {
+      const key = String(row.key ?? "").toLowerCase();
+      // Ensure we don't duplicate rows already found
+      return key.includes(normalizedTarget) && !exactRows.includes(row) && !fallbackRows.includes(row);
+    });
+
+    const sortByUpdatedAtDesc = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+      const aa = typeof a.updatedAt === "number" ? a.updatedAt : 0;
+      const bb = typeof b.updatedAt === "number" ? b.updatedAt : 0;
+      return bb - aa;
+    };
+    exactRows.sort(sortByUpdatedAtDesc);
+    fallbackRows.sort(sortByUpdatedAtDesc);
+    fuzzyRows.sort(sortByUpdatedAtDesc);
+
+    const keys = [
+      params.requestedSessionKey,
+      ...exactRows.map((row) => String(row.key ?? "").trim()),
+      ...fallbackRows.map((row) => String(row.key ?? "").trim()),
+      ...fuzzyRows.map((row) => String(row.key ?? "").trim()),
+      // Add standard webchat patterns
+      `agent:main:${normalizedTarget}`,
+      `webchat:${normalizedTarget}`,
+      normalizedTarget,
+      "main",
+    ];
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const key of keys) {
+      const normalized = String(key ?? "").trim();
+      if (!normalized || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      deduped.push(normalized);
+    }
+    return deduped;
   }
 
   private async sendToFeishu(session: AuthSession, message: string): Promise<void> {
