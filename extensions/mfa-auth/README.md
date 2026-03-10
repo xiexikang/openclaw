@@ -76,8 +76,8 @@ sequenceDiagram
 | 渠道                                                               | 状态        | 说明                                |
 | :----------------------------------------------------------------- | :---------- | :---------------------------------- |
 | **飞书 (Feishu/Lark)**                                             | ✅ 完全支持 | 支持发送认证链接,完成扫码认证       |
-| **Web**                                                            | ✅ 完全支持 | 认证链接直接在 Web UI 中显示        |
-| 其他渠道 (Telegram, Discord, Slack, Signal, iMessage, WhatsApp 等) | ⚠️ 有限支持 | 不会发送认证通知,但仍会拦截敏感操作 |
+| **Web/Webchat**                                                     | ⚠️ 有限支持 | 占未开发        |
+| 其他渠道 (Telegram, Discord, Slack, Signal, iMessage, WhatsApp 等) | ⚠️ 有限支持 | 占未开发 |
 
 **注意**:
 
