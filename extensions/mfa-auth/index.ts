@@ -3,7 +3,7 @@ import { authManager } from "./src/auth-manager.js";
 import { config } from "./src/config.js";
 import { NotificationService } from "./src/notification-service.js";
 import { qrCodeAuthProvider } from "./src/providers/qr-code.js";
-import { startHttpServer, setNotifyCallback, getServerBaseUrl } from "./src/server.js";
+import { startHttpServer, getServerBaseUrl } from "./src/server.js";
 import type { AuthSession } from "./src/types.js";
 
 let serverStarted = false;
@@ -46,7 +46,7 @@ export default function register(api: OpenClawPluginApi) {
 
   notificationService.setConfig(api.config);
 
-  setNotifyCallback(async (session: AuthSession) => {
+  authManager.setNotifyCallback(async (session: AuthSession) => {
     api.logger.info(`[mfa-auth] User ${session.userId} verified`);
 
     try {

@@ -76,6 +76,16 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
     const qrCode = session.qrcodeContent ? await renderQrPngBase64(session.qrcodeContent) : "";
     const isReauth = session.originalContext.commandBody.trim() === "/reauth";
 
+    if (config.authPageUrl) {
+      return this.renderExternalAuthPage(
+        commandPreview,
+        session.qrcodeContent || "",
+        remainingTime,
+        triggerType,
+        isReauth,
+      );
+    }
+
     return this.renderHtml(
       session.sessionId,
       commandPreview,
@@ -86,6 +96,188 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       authUrl,
       session.qrcodeContent || "",
     );
+  }
+
+  private renderExternalAuthPage(
+    commandPreview: string,
+    qrCodeContent: string,
+    remainingTime: number,
+    triggerType: "first_message" | "sensitive_operation" = "sensitive_operation",
+    isReauth: boolean = false,
+  ): string {
+    const escapedPreview = this.escapeHtml(commandPreview);
+    const isFirstMessageAuth = triggerType === "first_message";
+    const pageTitle = isFirstMessageAuth ? (isReauth ? "重新认证" : "首次认证") : "二次认证";
+    const pageTitleWithIcon = isFirstMessageAuth
+      ? isReauth
+        ? "🔐 重新认证"
+        : "🔐 首次认证"
+      : "🔐 二次认证";
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${pageTitle}</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      max-width: 400px;
+      width: 90%;
+    }
+    h1 {
+      color: #333;
+      margin-top: 0;
+      font-size: 24px;
+      text-align: center;
+    }
+    .info {
+      background: #f7fafc;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 20px 0;
+      font-size: 14px;
+      color: #4a5568;
+    }
+    .info strong {
+      color: #2d3748;
+    }
+    .qr-section {
+      text-align: center;
+      margin: 20px 0;
+      padding: 15px;
+      background: #f7fafc;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+    .qr-section h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      color: #4a5568;
+    }
+    .qr-image {
+      display: inline-block;
+      padding: 10px;
+      background: white;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .qr-link {
+      margin-top: 15px;
+      text-align: center;
+      padding: 10px;
+      background: #f7fafc;
+      border-radius: 6px;
+    }
+    .qr-link-label {
+      font-size: 12px;
+      color: #718096;
+      margin-bottom: 5px;
+    }
+    .qr-link-url {
+      color: #3b82f6;
+      text-decoration: none;
+      word-break: break-all;
+      font-size: 13px;
+    }
+    .qr-link-url:hover {
+      text-decoration: underline;
+      color: #2563eb;
+    }
+    .notice {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 4px;
+    }
+    .notice h3 {
+      margin: 0 0 10px 0;
+      color: #856404;
+      font-size: 16px;
+    }
+    .notice p {
+      margin: 0;
+      color: #856404;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .timer {
+      text-align: center;
+      color: #e53e3e;
+      font-weight: 600;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>${pageTitleWithIcon}</h1>
+    <div class="info">
+      <p>待验证操作:</p>
+      <strong>${escapedPreview}</strong>
+    </div>
+    <div class="qr-section">
+      <h3>📱 请打开【微信或数字身份助手APP】扫码</h3>
+      <div class="qr-image">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCodeContent)}" alt="认证二维码" width="200" height="200">
+      </div>
+      <div class="qr-link">
+        <div class="qr-link-label">🔗 二维码链接：</div>
+        <a href="${qrCodeContent}" class="qr-link-url" target="_blank">${qrCodeContent}</a>
+      </div>
+    </div>
+    <div class="notice">
+      <h3>⚠️ 认证成功提示</h3>
+      <p>扫码认证成功后，系统将自动发送通知到您的飞书或 Web 聊天窗口，请留意查看。</p>
+    </div>
+    <div class="timer">⏱️ 有效期: <span id="timer">${Math.floor(remainingTime / 60)}:${String(remainingTime % 60).padStart(2, "0")}</span></div>
+  </div>
+  <script>
+    const remainingTime = ${remainingTime};
+
+    function updateTimer() {
+      const timerEl = document.getElementById('timer');
+      if (!timerEl) return;
+
+      const minutes = Math.floor(remainingTime / 60);
+      const seconds = remainingTime % 60;
+      timerEl.textContent = minutes + ':' + String(seconds).padStart(2, '0');
+
+      if (remainingTime <= 0) {
+        timerEl.textContent = "0:00";
+        timerEl.style.color = "#999";
+      }
+    }
+
+    setInterval(() => {
+      const currentTime = parseInt(timerEl.textContent.split(':').join(''));
+      if (currentTime > 0) {
+        const [m, s] = timerEl.textContent.split(':').map(Number);
+        const newSeconds = m * 60 + s - 1;
+        const newMinutes = Math.floor(newSeconds / 60);
+        const newSecs = newSeconds % 60;
+        timerEl.textContent = newMinutes + ':' + String(newSecs).padStart(2, '0');
+      }
+    }, 1000);
+  </script>
+</body>
+</html>
+    `;
   }
 
   private renderHtml(

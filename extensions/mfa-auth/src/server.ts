@@ -7,13 +7,7 @@ import { renderQrPngBase64 } from "./qr.js";
 import type { AuthSession } from "./types.js";
 import { getLocalIpAddress } from "./utils.js";
 
-let notifyCallback: ((session: AuthSession) => void | Promise<void>) | null = null;
 let serverIpAddress = "localhost";
-
-export function setNotifyCallback(callback: (session: AuthSession) => void | Promise<void>): void {
-  console.log("[mfa-auth] setNotifyCallback called");
-  notifyCallback = callback;
-}
 
 export function getServerIpAddress(): string {
   if (config.domain) {
@@ -61,12 +55,6 @@ export function startHttpServer(): void {
               }
 
               const result = await authManager.verifySession(sessionId);
-
-              if (result.success) {
-                if (notifyCallback) {
-                  await notifyCallback(session);
-                }
-              }
 
               res.writeHead(200, { "Content-Type": "application/json" });
               res.end(JSON.stringify(result));

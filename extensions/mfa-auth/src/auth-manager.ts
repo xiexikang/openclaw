@@ -16,6 +16,8 @@ export class AuthManager {
   private persistDir: string;
   private initialized = false;
   private initPromise: Promise<void> | null = null;
+  private pollingTimers = new Map<string, NodeJS.Timeout>();
+  private notifyCallback: ((session: AuthSession) => void | Promise<void>) | null = null;
 
   constructor() {
     this.persistDir = this.resolvePersistDir();
@@ -54,6 +56,11 @@ export class AuthManager {
 
   registerProvider(provider: AuthMethodProvider): void {
     this.providers.set(provider.methodType, provider);
+  }
+
+  setNotifyCallback(callback: (session: AuthSession) => void | Promise<void>): void {
+    this.notifyCallback = callback;
+    console.log("[mfa-auth] Notify callback set");
   }
 
   loadPersistedFirstMessageAuth(): void {
@@ -189,6 +196,10 @@ export class AuthManager {
 
     this.sessions.set(sessionId, session);
 
+    if (this.config.enableBackendPolling) {
+      this.startBackendPolling(sessionId);
+    }
+
     if (this.config.debug) {
       console.log(`[mfa-auth] Generated session: ${sessionId}`);
       console.log(`[mfa-auth] User ID: ${userId}`);
@@ -237,6 +248,85 @@ export class AuthManager {
     }
 
     return result;
+  }
+
+  private startBackendPolling(sessionId: string): void {
+    if (this.pollingTimers.has(sessionId)) {
+      return;
+    }
+
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+
+    const pollInterval = 2000;
+    const provider = this.getProvider(session.authMethod);
+    if (!provider) {
+      return;
+    }
+
+    const timer = setInterval(async () => {
+      const currentSession = this.sessions.get(sessionId);
+      if (!currentSession) {
+        this.stopBackendPolling(sessionId);
+        return;
+      }
+
+      if (Date.now() - currentSession.timestamp > this.config.timeout) {
+        this.stopBackendPolling(sessionId);
+        this.sessions.delete(sessionId);
+        return;
+      }
+
+      const result = await provider.verify(sessionId);
+      if (result.success) {
+        this.stopBackendPolling(sessionId);
+        const triggerType = currentSession.originalContext.triggerType || "sensitive_operation";
+
+        if (triggerType === "first_message") {
+          this.verifiedForFirstMessage.set(currentSession.userId, Date.now());
+          this.persistFirstMessageAuth(currentSession.userId);
+        } else {
+          this.verifiedForSensitiveOps.set(currentSession.userId, Date.now());
+        }
+
+        this.sessions.delete(sessionId);
+
+        if (this.notifyCallback) {
+          try {
+            await this.notifyCallback(currentSession);
+          } catch (error) {
+            console.error(`[mfa-auth] Error calling notify callback: ${error}`);
+          }
+        }
+
+        if (this.config.debug) {
+          console.log(`[mfa-auth] Backend polling: Session verified: ${sessionId}`);
+          console.log(`[mfa-auth] User ${currentSession.userId} marked as verified (${triggerType})`);
+        }
+      } else if (result.status === "expired" || result.status === "failed") {
+        this.stopBackendPolling(sessionId);
+        this.sessions.delete(sessionId);
+      }
+    }, pollInterval);
+
+    this.pollingTimers.set(sessionId, timer);
+
+    if (this.config.debug) {
+      console.log(`[mfa-auth] Started backend polling for session: ${sessionId}`);
+    }
+  }
+
+  private stopBackendPolling(sessionId: string): void {
+    const timer = this.pollingTimers.get(sessionId);
+    if (timer) {
+      clearInterval(timer);
+      this.pollingTimers.delete(sessionId);
+      if (this.config.debug) {
+        console.log(`[mfa-auth] Stopped backend polling for session: ${sessionId}`);
+      }
+    }
   }
 
   isUserVerified(userId: string): boolean {
@@ -299,6 +389,7 @@ export class AuthManager {
 
     for (const [id, session] of this.sessions.entries()) {
       if (now - session.timestamp > this.config.timeout) {
+        this.stopBackendPolling(id);
         const provider = this.getProvider(session.authMethod);
         if (provider) {
           provider.cleanup(id);

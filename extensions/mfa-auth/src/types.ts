@@ -47,6 +47,8 @@ export interface MfaConfig {
   requireAuthOnFirstMessage?: boolean;
   firstMessageAuthDuration?: number;
   gatewayHost?: string;
+  authPageUrl?: string;
+  enableBackendPolling?: boolean;
 }
 
 export interface AuthMethodProvider {
