@@ -33,6 +33,7 @@ export const config: MfaConfig = {
   requireAuthOnFirstMessage: parseBooleanEnv(process.env.MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE) ?? true,
   firstMessageAuthDuration:
     Number.parseInt(process.env.MFA_FIRST_MESSAGE_AUTH_DURATION || "", 10) || 24 * 60 * 60 * 1000,
+  gatewayHost: process.env.MFA_GATEWAY_HOST || "127.0.0.1",
 };
 
 export const dabbyConfig: DabbyConfig = {
