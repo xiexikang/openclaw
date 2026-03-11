@@ -1,4 +1,4 @@
-import type { OpenClawPluginApi } from "../../src/plugins/types.js";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { authManager } from "./src/auth-manager.js";
 import { config } from "./src/config.js";
 import { NotificationService } from "./src/notification-service.js";
