@@ -177,7 +177,7 @@ export default function register(api: OpenClawPluginApi) {
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
-          "✅ 二次认证成功，请继续对话。",
+          "✅ 二次认证成功，请重新发送之前的命令（或回复'确认'）即可执行。",
           userId,
           targetSessionKey,
         ).catch((err) =>
@@ -231,8 +231,9 @@ export default function register(api: OpenClawPluginApi) {
 
     // For webchat, use userId as sessionKey instead of agent:main:<userId>
     if (parsedChannel === "webchat" || parsedChannel === "web") {
+      const sessionKeyForWebchat = userId;
+
       try {
-        const sessionKeyForWebchat = userId;
         await sendAuthMessage(
           parsedChannel,
           parsedAccountId,
@@ -624,7 +625,7 @@ function startPollingForAuth(
   // But if it's true, the callback will handle it.
   // To avoid double notification, we should check the config here or ensure consumption is atomic.
   // Since checkAndConsumeNotification is atomic, we can run this safely even if callback also runs.
-  
+
   api.logger.info(
     `[mfa-auth] Starting polling for auth status: userId=${userId}, sessionId=${sessionId}`,
   );
@@ -648,7 +649,7 @@ function startPollingForAuth(
           ? "✅ 重新认证成功，请继续对话。"
           : notificationInfo.triggerType === "first_message"
             ? "✅ 首次认证成功，请继续对话。"
-            : "✅ 二次认证成功，请继续对话。";
+            : "✅ 二次认证成功，请重新发送之前的命令（或回复'确认'）即可执行。";
 
         sendAuthMessage(
           context.channel,
