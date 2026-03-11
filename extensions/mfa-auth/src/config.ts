@@ -34,7 +34,6 @@ export const config: MfaConfig = {
   firstMessageAuthDuration:
     Number.parseInt(process.env.MFA_FIRST_MESSAGE_AUTH_DURATION || "", 10) || 24 * 60 * 60 * 1000,
   gatewayHost: process.env.MFA_GATEWAY_HOST || "127.0.0.1",
-  enableAuthNotification: parseBooleanEnv(process.env.MFA_ENABLE_AUTH_NOTIFICATION) ?? false,
 };
 
 export const dabbyConfig: DabbyConfig = {

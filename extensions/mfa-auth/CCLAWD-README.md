@@ -128,7 +128,7 @@ MFA_AUTH_STATE_DIR=~/.cclawd/mfa-auth/    # 认证状态持久化目录
 # 域名配置 (用于生成认证链接)
 # 如果不配置，默认使用 http://localhost:18801
 # 如果配置了 Nginx 反向代理，请填写你的域名
-MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
+MFA_AUTH_DOMAIN=http://localhost:18801
 ```
 
 **配置详解：**
@@ -160,7 +160,7 @@ MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
 ```nginx
 server {
     listen 80;
-    server_name cclawd.dbhl.cn;  # 你的域名
+    server_name localhost:18801;  # 你的域名
 
     location /mfa-auth/ {
         proxy_pass http://localhost:18801;
@@ -174,7 +174,7 @@ server {
 
 **配合的环境变量**：
 ```bash
-MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
+MFA_AUTH_DOMAIN=http://localhost:18801
 ```
 
 ### 4. 启用插件 (cclawd.json)
@@ -219,7 +219,7 @@ MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
 > 🔒 **身份验证请求**
 >
 > 为了保障安全，首次对话需要进行实名认证。请点击链接完成验证：
-> http://cclawd.dbhl.cn/mfa-auth/session_12345
+> http://localhost:18801/mfa-auth/session_12345
 >
 > 验证有效期: 5 分钟
 
@@ -238,7 +238,7 @@ MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
 > ⚠️ **🔐 该操作需要二次认证**
 >
 > 检测到敏感操作，请点击下方链接进行身份验证：
-> http://cclawd.dbhl.cn/mfa-auth/session_67890
+> http://localhost:18801/mfa-auth/session_67890
 >
 > 验证有效期: 5 分钟
 >
@@ -262,7 +262,7 @@ MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
 > 🔐 **重新认证**
 >
 > 请点击以下链接完成身份验证:
-> http://cclawd.dbhl.cn/mfa-auth/session_abcde
+> http://localhost:18801/mfa-auth/session_abcde
 >
 > _验证有效期: 5 分钟_
 

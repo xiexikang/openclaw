@@ -3,7 +3,7 @@ import { authManager } from "./src/auth-manager.js";
 import { config } from "./src/config.js";
 import { NotificationService } from "./src/notification-service.js";
 import { qrCodeAuthProvider } from "./src/providers/qr-code.js";
-import { startHttpServer, setNotifyCallback, getServerBaseUrl } from "./src/server.js";
+import { startHttpServer, getServerBaseUrl } from "./src/server.js";
 import type { AuthSession } from "./src/types.js";
 
 let serverStarted = false;
@@ -45,51 +45,6 @@ export default function register(api: OpenClawPluginApi) {
   authManager.registerProvider(qrCodeAuthProvider);
 
   notificationService.setConfig(api.config);
-
-  setNotifyCallback(async (session: AuthSession) => {
-    api.logger.info(`[mfa-auth] User ${session.userId} verified`);
-
-    if (!config.enableAuthNotification) {
-      api.logger.info(`[mfa-auth] Auth notification disabled, skipping message send.`);
-      return;
-    }
-
-    try {
-      const commandBody = session.originalContext.commandBody;
-      const triggerType = session.originalContext.triggerType || "sensitive_operation";
-
-      const isFirstMessageAuth = triggerType === "first_message";
-      const isReauth = commandBody.trim() === "/reauth";
-
-      let messageText = "";
-      if (isFirstMessageAuth) {
-        messageText = isReauth
-          ? `🎉 重新认证成功！请重新发送消息以继续对话。`
-          : `🎉 首次认证成功！请重新发送消息以继续对话。`;
-      } else {
-        messageText = `✅ 二次认证成功！\n\n请回到聊天窗口，重新发送之前的命令（或回复'确认'）即可执行。`;
-      }
-
-      const channel = session.originalContext.channel;
-      const sessionKey =
-        session.originalContext.sessionKey ||
-        `${channel}:${session.originalContext.accountId || ""}:${session.userId}`;
-
-      api.logger.info(`[mfa-auth] Sending notification to session: ${sessionKey}`);
-
-      await sendAuthMessage(
-        channel,
-        session.originalContext.accountId,
-        session.originalContext.to || session.userId,
-        messageText,
-        session.userId,
-        sessionKey,
-      );
-      api.logger.info(`[mfa-auth] Notification sent to user ${session.userId}`);
-    } catch (error) {
-      api.logger.error(`[mfa-auth] Failed in notify callback: ${String(error)}`);
-    }
-  });
 
   api.on("message_sending", async (event, ctx) => {
     const userId = event.to || ctx.conversationId || "unknown";
@@ -157,33 +112,6 @@ export default function register(api: OpenClawPluginApi) {
 
     if (authManager.isUserVerifiedForSensitiveOps(userId)) {
       api.logger.info(`[mfa-auth] User ${userId} is verified for sensitive ops, allowing`);
-
-      const notificationInfo = authManager.checkAndConsumeNotification(userId);
-      if (notificationInfo) {
-        const sessionKey = ctx.sessionKey || "";
-        const sessionKeyParts = sessionKey.split(":").filter(Boolean);
-        const parsedChannel = sessionKeyParts[2] || undefined;
-        let parsedAccountId = sessionKeyParts[3] || undefined;
-        const parsedTo = sessionKeyParts[sessionKeyParts.length - 1] || undefined;
-
-        if (parsedAccountId === "direct" || parsedAccountId === "group") {
-          parsedAccountId = undefined;
-        }
-
-        const targetSessionKey =
-          parsedChannel === "webchat" || parsedChannel === "web" ? userId : sessionKey;
-
-        sendAuthMessage(
-          parsedChannel,
-          parsedAccountId,
-          parsedTo || userId,
-          "✅ 二次认证成功，请重新发送之前的命令（或回复'确认'）即可执行。",
-          userId,
-          targetSessionKey,
-        ).catch((err) =>
-          api.logger.error(`[mfa-auth] Failed to send success notification: ${err}`),
-        );
-      }
 
       return undefined;
     }
@@ -336,37 +264,6 @@ export default function register(api: OpenClawPluginApi) {
 
     if (authManager.isUserVerifiedForFirstMessage(userId)) {
       api.logger.info(`[mfa-auth] User ${userId} already verified for first message`);
-
-      const notificationInfo = authManager.checkAndConsumeNotification(userId);
-      if (notificationInfo) {
-        const parsedChannel = ctx.channelId;
-        const parsedAccountId = ctx.accountId || "";
-        const parsedTo = event.from;
-
-        let sessionKey = ctx.conversationId;
-        if (!sessionKey) {
-          if (parsedChannel === "webchat" || parsedChannel === "web") {
-            sessionKey = userId;
-          } else {
-            sessionKey = `${parsedChannel}:${parsedAccountId}:${event.from}`;
-          }
-        }
-
-        const messageText = notificationInfo.isReauth
-          ? "✅ 重新认证成功，请继续对话。"
-          : "✅ 首次认证成功，请继续对话。";
-
-        sendAuthMessage(
-          parsedChannel,
-          parsedAccountId,
-          parsedTo || userId,
-          messageText,
-          userId,
-          sessionKey,
-        ).catch((err) =>
-          api.logger.error(`[mfa-auth] Failed to send success notification: ${err}`),
-        );
-      }
 
       return;
     }
@@ -619,13 +516,6 @@ function startPollingForAuth(
     sessionKey?: string;
   },
 ) {
-  // Only start polling if notification is disabled (passive mode)
-  // Or we can always poll as a fallback?
-  // User asked for this SPECIFICALLY when enableAuthNotification is false.
-  // But if it's true, the callback will handle it.
-  // To avoid double notification, we should check the config here or ensure consumption is atomic.
-  // Since checkAndConsumeNotification is atomic, we can run this safely even if callback also runs.
-
   api.logger.info(
     `[mfa-auth] Starting polling for auth status: userId=${userId}, sessionId=${sessionId}`,
   );
