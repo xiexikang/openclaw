@@ -39,7 +39,7 @@ export const config: MfaConfig = {
 export const dabbyConfig: DabbyConfig = {
   clientId: process.env.DABBY_CLIENT_ID || "",
   clientSecret: process.env.DABBY_CLIENT_SECRET || "",
-  apiBaseUrl: "https://api.dabby.com.cn/v2/api",
+  apiBaseUrl: process.env.DABBY_API_BASE_URL || "",
   tokenCacheDuration: 7000000,
   pollInterval: 2000,
 };
